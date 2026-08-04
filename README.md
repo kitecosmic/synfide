@@ -41,6 +41,7 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 | `treasury` | Money with a seatbelt, PSP- and currency-agnostic: per-scope budgets that cut BEFORE anything is declared, the runtime's audited `spend` ledger + host ceiling underneath, payments under least-privilege `call_tool`, and discrepancy records when a PSP fails after the declare — never a silent mismatch |
 | `cassettes` | Record/replay of LLM calls — behavioral tests (evals) that run cheap, deterministic and fully offline; record with whichever provider is configured, replay with none |
 | `journal` | An ordered action journal over the least-privilege tool dispatcher: executed, rejected (allow-list) and failed — actor, action, timestamp |
+| `ui` | The operator page, served by your own app: one-click approve/deny inbox, workflow statuses, journal tail — XSS-escaped, zero JS build, works on a phone. Plus `console.syn`: the same operations from a terminal, over the app's own HTTP API |
 
 Plus scaffolding: conventional project layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
 
@@ -49,7 +50,7 @@ Plus scaffolding: conventional project layout, per-environment capability profil
 All six packages — `store`, `durable`, `approvals`, `treasury`, `cassettes`, `journal` — are here and tested. Clone this repo (or just run the quickstart above) and:
 
 ```bash
-# the test suite (17 tests — fresh state + audit dirs keep it deterministic):
+# the test suite (19 tests — fresh state + audit dirs keep it deterministic):
 SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
 
 # a durable pipeline you can kill and resume (completed steps are never re-run):
@@ -61,9 +62,10 @@ synsema run example_pipeline.syn            # resumes AT "validate" and finishes
 # the heartbeat finishes it BY ITSELF (no second request):
 synsema serve example_onboarding.syn
 curl -X POST localhost:8080/onboarding/ana/start          # → parks at "approval"
-curl localhost:8080/inbox                                 # → what awaits a human
-curl -X POST localhost:8080/inbox/onboarding-ana -d '{"approved": true, "who": "you"}'
-sleep 15 && curl localhost:8080/onboarding/ana            # → "done", woken by the heartbeat
+# now open http://localhost:8080/inbox/ui in ANY browser (phone included):
+# approve with one click — the heartbeat finishes the workflow by itself.
+# Prefer the terminal? The operator console does the same over the app's API:
+synsema run console.syn                                   # l · a <id> · d <id> · g <path>
 ```
 
 Every example file documents its own flow at the top. Use the packages from your own entry file with `use "./synfide/durable.syn" as durable` — your entry declares the capabilities (`require memory("your-app")`, `require serve(8080)`, …); the packages never grab any.
