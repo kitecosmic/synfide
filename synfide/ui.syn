@@ -1,0 +1,100 @@
+-- Synfide · ui — the operator page, served by your own app. No JS build, no
+-- assets, no second deploy: one HTML page (inline styles, meta-refresh) over the
+-- same state the API serves. The APPROVER's surface: a human opens /inbox/ui on
+-- any browser — phone included — and approves or denies with one click.
+--
+-- The ENTRY wires two routes (and declares serve/memory/time as always):
+--
+--     use "./synfide/ui.syn" as ui
+--     serve on 8080
+--         route "GET /inbox/ui"
+--             give html(ui.inbox_page())
+--         route "GET /inbox/ui/decide"
+--             give ui.resolve(query.id, query.approved, query.who)
+--
+-- Security note: everything rendered is HTML-escaped here (approval messages and
+-- workflow names carry user text — an injected <script> must land as text, never
+-- as markup).
+
+use "./store.syn" as store
+use "./durable.syn" as durable
+use "./approvals.syn" as approvals
+use "./journal.syn" as journal
+
+-- HTML-escape. `&` FIRST (or it would re-escape the entities themselves).
+task esc(v)
+    let s be text(v)
+    set s to replace_text(s, "&", "&amp;")
+    set s to replace_text(s, "<", "&lt;")
+    set s to replace_text(s, ">", "&gt;")
+    set s to replace_text(s, "\"", "&quot;")
+    give s
+
+task approval_row(a)
+    let id be esc(a["id"])
+    let h be "<div class=\"card\"><b>" + esc(a["message"]) + "</b><br><code>" + id + "</code>"
+    set h to h + "<form action=\"/inbox/ui/decide\" method=\"get\">"
+    set h to h + "<input type=\"hidden\" name=\"id\" value=\"" + id + "\">"
+    set h to h + "<input name=\"who\" placeholder=\"your name\" value=\"web\">"
+    set h to h + "<button name=\"approved\" value=\"yes\" class=\"ok\">Approve</button>"
+    set h to h + "<button name=\"approved\" value=\"no\" class=\"no\">Deny</button>"
+    set h to h + "</form></div>"
+    give h
+
+task wf_row(w)
+    let step be ""
+    when contains(w, "step")
+        set step to " @ " + esc(w["step"])
+    give "<tr><td><code>" + esc(w["name"]) + "</code></td><td class=\"st-" + esc(w["status"]) + "\">" + esc(w["status"]) + step + "</td></tr>"
+
+task jr_row(e)
+    give "<tr><td>" + esc(e["n"]) + "</td><td>" + esc(e["actor"]) + "</td><td>" + esc(e["action"]) + "</td><td>" + esc(e["detail"]) + "</td></tr>"
+
+task styles()
+    let c be "body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;background:#fafafa;color:#222}"
+    set c to c + "h1{font-size:1.3rem} h2{font-size:1rem;margin-top:2rem;color:#555}"
+    set c to c + ".card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem;margin:.6rem 0}"
+    set c to c + ".card form{margin-top:.6rem;display:flex;gap:.5rem} .card input[name=who]{flex:1;padding:.4rem;border:1px solid #ccc;border-radius:6px}"
+    set c to c + "button{padding:.45rem .9rem;border:0;border-radius:6px;cursor:pointer;font-weight:600}"
+    set c to c + ".ok{background:#16a34a;color:#fff} .no{background:#dc2626;color:#fff}"
+    set c to c + "table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #ddd;border-radius:8px}"
+    set c to c + "td{padding:.4rem .6rem;border-top:1px solid #eee;font-size:.9rem}"
+    set c to c + ".st-done{color:#16a34a} .st-waiting{color:#d97706} .st-failed{color:#dc2626}"
+    set c to c + ".empty{color:#777} .meter{color:#777;font-size:.85rem}"
+    give c
+
+-- inbox_page() → the full operator page as HTML text (wrap with html() in your route).
+export task inbox_page()
+    let pending be approvals.pending()
+    let wfs be durable.workflows("")
+    let es be journal.entries()
+    let maxn be length(es)
+    let tail be where(es, (e) => e["n"] > maxn - 10)
+    let cards be ""
+    when length(pending) == 0
+        set cards to "<p class=\"empty\">Nothing waiting for a human. ✔</p>"
+    otherwise
+        set cards to join(apply(pending, (a) => approval_row(a)), "")
+    let h be "<!doctype html><html><head><meta charset=\"utf-8\">"
+    set h to h + "<meta http-equiv=\"refresh\" content=\"5\">"
+    set h to h + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    set h to h + "<title>Synfide — inbox</title><style>" + styles() + "</style></head><body>"
+    set h to h + "<h1>Synfide · approval inbox</h1>"
+    set h to h + "<p class=\"meter\">llm tokens used by this process: " + esc(llm_usage()) + " · auto-refresh 5s</p>"
+    set h to h + cards
+    set h to h + "<h2>Workflows</h2><table>" + join(apply(wfs, (w) => wf_row(w)), "") + "</table>"
+    set h to h + "<h2>Journal (last 10)</h2><table>" + join(apply(tail, (e) => jr_row(e)), "") + "</table>"
+    set h to h + "</body></html>"
+    give h
+
+-- resolve(id, approved_text, who_text) → records the decision (journaled) and
+-- redirects back to the inbox. `approved` is the form value ("yes"/"no").
+export task resolve(id, approved_text, who_text)
+    let who be who_text
+    when who == "" or who == nothing
+        set who to "web"
+    let d be approvals.resolve(id, approved_text == "yes", who)
+    when d == nothing
+        give respond("unknown approval: " + esc(id), "text/plain", 404)
+    journal.record(who, "ui-decision", id + " -> " + d["status"])
+    give redirect("/inbox/ui")

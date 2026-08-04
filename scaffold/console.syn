@@ -1,0 +1,72 @@
+-- Synfide · console — the operator's terminal, talking to your running app over
+-- its own HTTP API (never poking the state files behind the server's back).
+--
+--   synsema serve app-or-example.syn        # in one terminal
+--   synsema run console.syn                 # in another
+--
+-- Commands:
+--   l              list pending approvals
+--   a <id>         approve   (e.g.  a onboarding-ana)
+--   d <id>         deny
+--   g <path>       GET any route and print it (e.g.  g /onboarding/ana)
+--   q              quit
+--
+-- Set SYNFIDE_URL to point elsewhere (default http://127.0.0.1:8080).
+intent: "Terminal console for a running Synfide app, over its HTTP API"
+
+require net("127.0.0.1")
+require env("SYNFIDE_URL")
+require stdout
+require stdin
+
+let base be env("SYNFIDE_URL", "http://127.0.0.1:8080")
+
+task show_pending(base_url)
+    let r be http_get(base_url + "/inbox")
+    when not (ok of r)
+        print("cannot reach " + base_url + " — is the app serving?")
+        give false
+    let items be json_decode(body of r)["items"]
+    when length(items) == 0
+        print("nothing waiting for a human ✔")
+        give true
+    each a in items
+        print("  " + a["id"] + "  ·  " + a["message"])
+    give true
+
+task send_decision(base_url, id, approved)
+    let payload be json_encode({"approved": approved, "who": "console"})
+    let r be http_post(base_url + "/inbox/" + id, payload, {"Content-Type": "application/json"})
+    when ok of r
+        print("  -> " + text(json_decode(body of r)["status"]))
+    otherwise
+        print("  -> HTTP " + text(status of r) + " (unknown id?)")
+
+-- "a onboarding-ana" → "onboarding-ana" ("" if no argument was given)
+task arg_of(t)
+    let parts be split(t, " ")
+    when length(parts) < 2
+        give ""
+    give trim(parts[1])
+
+print("synfide console → " + base + "   (l=list  a <id>  d <id>  g <path>  q=quit)")
+let running be true
+while running
+    flush()
+    let line be read_line("> ")
+    when line == nothing or trim(line) == "q"
+        set running to false
+    otherwise
+        let t be trim(line)
+        when t == "l"
+            show_pending(base)
+        otherwise when starts_with(t, "a ")
+            send_decision(base, arg_of(t), true)
+        otherwise when starts_with(t, "d ")
+            send_decision(base, arg_of(t), false)
+        otherwise when starts_with(t, "g ")
+            let r be http_get(base + arg_of(t))
+            print(body of r)
+        otherwise when t != ""
+            print("commands: l · a <id> · d <id> · g <path> · q")
+print("bye")

@@ -15,6 +15,7 @@ use "./synfide/approvals.syn" as approvals
 use "./synfide/treasury.syn" as treasury
 use "./synfide/cassettes.syn" as cassettes
 use "./synfide/journal.syn" as journal
+use "./synfide/ui.syn" as ui
 
 -- ---------- store ----------
 
@@ -240,3 +241,22 @@ test "journal: dispatch journals ok, rejected and error — in order, nothing sw
     assert_eq(apply(es, (e) => e["action"]), ["tool-ok", "tool-rejected", "tool-error"])
     assert_eq(es[0]["n"], 1)
     assert_eq(es[2]["actor"], "agent-1")
+
+-- ---------- ui ----------
+
+test "ui: the inbox page escapes user text — injected markup lands as text"
+    approvals.request("xss-probe", "<script>alert(1)</script> & \"quotes\"")
+    let page be ui.inbox_page()
+    assert(contains(page, "&lt;script&gt;alert(1)&lt;/script&gt;"))
+    assert(not contains(page, "<script>alert(1)"))
+    assert(contains(page, "&amp; &quot;quotes&quot;"))
+    assert(contains(page, "xss-probe"))
+    assert(contains(page, "/inbox/ui/decide"), "el form apunta a la ruta de decision")
+
+test "ui: decide resolves, journals, and redirects back to the inbox"
+    approvals.request("ui-1", "ship the ui?")
+    ui.resolve("ui-1", "yes", "")
+    assert_eq(approvals.status("ui-1")["status"], "approved")
+    assert_eq(approvals.status("ui-1")["decided_by"], "web", "quien vacio cae a \"web\"")
+    let acts be apply(journal.entries(), (e) => e["action"])
+    assert(contains(acts, "ui-decision"))

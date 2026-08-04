@@ -1,5 +1,5 @@
 {
-  "version": "v0.2.0",
+  "version": "v0.3.0",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -32,14 +32,24 @@
       "sha256": "1101270fbdeab320a45a8ad444b74924dd6a4a52c1b745fb9593711f36a2ef8e"
     },
     {
+      "src": "synfide/ui.syn",
+      "dest": "synfide/ui.syn",
+      "sha256": "5d54abff569464cc29d1a2d8bc0283bf979be2f9e221725d2ce9da65f2735cbc"
+    },
+    {
       "src": "scaffold/app.syn",
       "dest": "app.syn",
       "sha256": "824eb0cc920c54dfab9770aae0d0c8e8d64c4bf1f3d6b281637d69493c08ac80"
     },
     {
+      "src": "scaffold/console.syn",
+      "dest": "console.syn",
+      "sha256": "d9e08caf027ad56411d7ddef0eca4ab273bda0773f924f14b1512a3b1f9df8a4"
+    },
+    {
       "src": "test_synfide.syn",
       "dest": "test_synfide.syn",
-      "sha256": "c486f67aed56c28e3385c8d8425dada79011735bbb2f65f12dabf1767326bfaa"
+      "sha256": "32a4ce2beeed7f240bd17619a15c35af36c9203320686ae7c51efb62ddb71a97"
     }
   ]
 }

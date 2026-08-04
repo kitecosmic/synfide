@@ -23,6 +23,7 @@ require time
 
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
+use "./synfide/ui.syn" as ui
 
 task prepare(ctx)
     give "account drafted for " + ctx["employee"]
@@ -63,8 +64,18 @@ serve on 8080
     route "GET /inbox"
         give approvals.pending()
 
+    -- The human surface: open http://localhost:8080/inbox/ui in ANY browser
+    -- (phone included) — approve/deny with one click, auto-refreshes.
+    route "GET /inbox/ui"
+        give html(ui.inbox_page())
+
+    route "GET /inbox/ui/decide"
+        give ui.resolve(query.id, query.approved, query.who)
+
     route "POST /inbox/:id"
         let b be json of request
+        when b == nothing
+            give fail("body must be JSON: {\"approved\": true|false, \"who\": \"name\"}")
         let d be approvals.resolve(params.id, b["approved"], b["who"])
         when d == nothing
             give not_found("no such approval: " + params.id)
