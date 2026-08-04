@@ -109,6 +109,12 @@ task chat_record(role, content)
 task chat_bubble(e)
     give "<div class=\"msg " + esc(e["role"]) + "\"><span>" + esc(e["text"]) + "</span></div>"
 
+task recent_ctx()
+    let es be chat_entries()
+    let maxn be length(es)
+    let recent be where(es, (e) => e["n"] > maxn - 8)
+    give join(apply(recent, (e) => e["role"] + ": " + e["text"]), "\n")
+
 -- chat_send(message) → answers with the configured provider (recent turns as
 -- context), persists both sides, and redirects back to /chat.
 export task chat_send(message)
@@ -116,11 +122,22 @@ export task chat_send(message)
         give redirect("/chat")
     let msg be trim(text(message))
     chat_record("user", msg)
-    let es be chat_entries()
-    let maxn be length(es)
-    let recent be where(es, (e) => e["n"] > maxn - 8)
-    let ctx be join(apply(recent, (e) => e["role"] + ": " + e["text"]), "\n")
-    let answer be reason about msg with context = ctx
+    let answer be reason about msg with context = recent_ctx()
+    chat_record("assistant", text(answer))
+    give redirect("/chat")
+
+-- chat_send_with(message, responder) → same, but the answer comes from YOUR
+-- responder task — typically an agent with tools (see synfide/agent.syn):
+--     task my_agent(message, history)
+--         give agent.respond(message, tools, catalog, history, 4)
+--     route "GET /chat/send"
+--         give ui.chat_send_with(query.message, my_agent)
+export task chat_send_with(message, responder)
+    when message == nothing or trim(text(message)) == ""
+        give redirect("/chat")
+    let msg be trim(text(message))
+    chat_record("user", msg)
+    let answer be call(responder, {"message": msg, "history": recent_ctx()})
     chat_record("assistant", text(answer))
     give redirect("/chat")
 

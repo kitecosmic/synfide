@@ -19,7 +19,7 @@ synsema run app.syn        # your first durable workflow, in the terminal
 synsema serve serve.syn    # …and your server: http://localhost:8080
 ```
 
-With the server up: **`/chat`** talks to your configured LLM provider (any of them, or a local model), **`/inbox/ui`** is the one-click approval inbox (works on a phone), and `synsema run console.syn` is the same thing from a terminal.
+With the server up: **`/chat`** is an **agent** over your configured LLM provider — ask it to *do* things ("onboard ana"): risky tools don't act directly, they park in **`/inbox/ui`**, the one-click approval inbox (works on a phone), and finish by themselves once you approve. `synsema run console.syn` is the same inbox from a terminal.
 
 That's the whole setup. The generated `.env.example` documents **every** variable on its own line — all supported LLM providers (including fully local GGUF models that need no key at all), the human-approval webhooks, and the host ceilings for money and tokens. Copy it to `.env`, uncomment what you use, done. Nothing is guessed, nothing is hidden.
 

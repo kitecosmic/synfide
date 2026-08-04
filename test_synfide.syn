@@ -16,6 +16,7 @@ use "./synfide/treasury.syn" as treasury
 use "./synfide/cassettes.syn" as cassettes
 use "./synfide/journal.syn" as journal
 use "./synfide/ui.syn" as ui
+use "./synfide/agent.syn" as agent
 
 -- ---------- store ----------
 
@@ -276,3 +277,18 @@ test "chat: an empty message is a no-op redirect, history intact"
     ui.chat_send(nothing)
     let page be ui.chat_page()
     assert(contains(page, "hola &lt;b&gt;mundo&lt;/b&gt;"), "la historia sigue")
+
+-- ---------- agent ----------
+
+task fake_responder(message, history)
+    give "eco: " + message + " (con " + text(length(history)) + " chars de historia)"
+
+test "agent: offline the loop degrades to the runtime placeholder, never crashes"
+    let tools be {}
+    let out be agent.respond("do something", tools, [], "", 3)
+    assert(contains(out, "no llm provider"), "offline → placeholder del runtime: " + out)
+
+test "chat_send_with: the answer comes from YOUR responder"
+    ui.chat_send_with("probando al agente", fake_responder)
+    let page be ui.chat_page()
+    assert(contains(page, "eco: probando al agente"))

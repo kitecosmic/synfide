@@ -4,7 +4,10 @@
 --   synsema serve serve.syn
 --
 --   http://localhost:8080          → home (links to everything)
---   http://localhost:8080/chat     → chat with your configured LLM provider
+--   http://localhost:8080/chat     → an AGENT chat: it can DO things. Try
+--                                    "onboard ana" — it starts a durable
+--                                    workflow that parks in your inbox; approve
+--                                    it and the heartbeat finishes the job.
 --   http://localhost:8080/inbox/ui → the approval inbox (works on a phone)
 --
 --   # start a demo workflow that parks on a human approval:
@@ -24,6 +27,7 @@ require llm
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
+use "./synfide/agent.syn" as agent
 
 task prepare(ctx)
     give "prepared " + ctx["name"]
@@ -48,6 +52,37 @@ task heartbeat()
 
 cron_every(15, heartbeat)
 
+-- ---------- the chat is an AGENT with tools ----------
+-- Ask it things like:  "onboard ana"  ·  "how is ana's onboarding going?"
+-- The risky tool does NOT act directly: it starts a durable workflow that PARKS
+-- in your approval inbox (/inbox/ui). You approve; the heartbeat finishes it.
+-- Every dispatch — executed, rejected, failed — lands in the journal.
+
+task tool_start_onboarding(name)
+    require memory("my-synfide-app")
+    require time
+    let r be durable.run("demo-" + name, wf_steps(), {"name": name})
+    when r["status"] == "waiting"
+        give "workflow demo-" + name + " started — WAITING for human approval in the inbox (/inbox/ui). It will finish by itself once approved."
+    give "workflow demo-" + name + ": " + r["status"]
+
+task tool_check_onboarding(name)
+    require memory("my-synfide-app")
+    let s be durable.status_of("demo-" + name)
+    give "demo-" + name + " → next step: " + text(s["next"]) + ". " + text(s["display"])
+
+let TOOLS be {
+    "start_onboarding": tool_start_onboarding,
+    "check_onboarding": tool_check_onboarding
+}
+let CATALOG be [
+    {"name": "start_onboarding", "describe": "Start an onboarding workflow for a person. It REQUIRES human approval: it parks in the approval inbox and completes only after a human approves.", "params": ["name"]},
+    {"name": "check_onboarding", "describe": "Check how a person's onboarding workflow is going (next step and progress).", "params": ["name"]}
+]
+
+task chat_agent(message, history)
+    give agent.respond(message, TOOLS, CATALOG, history, 4)
+
 serve on 8080
     route "GET /"
         give html(ui.home_page())
@@ -56,7 +91,7 @@ serve on 8080
         give html(ui.chat_page())
 
     route "GET /chat/send"
-        give ui.chat_send(query.message)
+        give ui.chat_send_with(query.message, chat_agent)
 
     route "GET /inbox"
         give approvals.pending()

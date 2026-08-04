@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.2",
+  "version": "v0.3.3",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -34,7 +34,12 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "d5b0c43a7e714bf4b15e15d28246f1a031e065c3e0fe4a7b81710818dbb7fa62"
+      "sha256": "f108598583e33b1b468cf3ceb86d4fbbc45c580a4cc4dcdc885309e55aaa13d7"
+    },
+    {
+      "src": "synfide/agent.syn",
+      "dest": "synfide/agent.syn",
+      "sha256": "1ca077d150d76a9669775edaa5e9cc21f8631a8af8747cfefcb27c9eb9125084"
     },
     {
       "src": "scaffold/app.syn",
@@ -44,7 +49,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "4e43285a37c272d05f34a1bdac1cbf0c37966f7c2da065109479da7de46af34e"
+      "sha256": "eee938a60e41e7a3b94a08e61a3828dd9dd5a08b04318bfdacd9a18a07254602"
     },
     {
       "src": "scaffold/console.syn",
@@ -54,7 +59,7 @@
     {
       "src": "test_synfide.syn",
       "dest": "test_synfide.syn",
-      "sha256": "7b538f26407fbd0b550602be5dfcf5d3df00f6f70f28843c2190c6f6a4dc64ef"
+      "sha256": "ae453bf9452802567c9c072b7c61de99f2e72f4166f02a3ddbd21842ab26b4ba"
     }
   ]
 }

@@ -1,0 +1,42 @@
+-- Synfide · agent — the safe tool-calling loop, packaged. This is what turns the
+-- chat from "talks" into "does": the model may PROPOSE a tool; your allow-list
+-- decides if it exists; `call_tool` runs it under least-privilege (only the
+-- capabilities the tool declared); the journal records every dispatch — executed,
+-- rejected or failed; and the loop is bounded by max_steps. A prompt injection
+-- can invent tool names all day: nothing outside the allow-list ever runs.
+--
+-- Tools that need a HUMAN don't block: they start a durable workflow whose gate
+-- parks in the approval inbox — the agent answers "waiting for approval" and the
+-- heartbeat finishes the job once a human decides. That is the whole point of
+-- the framework in one loop.
+--
+-- The ENTRY declares the capabilities (llm under serve, memory, time, plus
+-- whatever the tools themselves declare). This module declares nothing.
+
+use "./journal.syn" as journal
+
+-- respond(question, tools, catalog, context, max_steps) → the agent's final text.
+--   tools    — the allow-list: {"name": task}
+--   catalog  — what the model sees: [{"name", "describe", "params": [...]}]
+--   context  — text carried between steps (chat history goes here)
+export task respond(question, tools, catalog, context, max_steps)
+    let ctx be text(context)
+    let step_n be 0
+    while step_n < max_steps
+        set step_n to step_n + 1
+        let step be llm_step(question, catalog, ctx)
+        when step["kind"] == "final"
+            give step["text"]
+        otherwise when contains(tools, step["name"])
+            try
+                let r be journal.dispatch(tools, step["name"], step["args"], "chat-agent")
+                set ctx to ctx + " [" + step["name"] + " => " + text(r) + "]"
+            recover err
+                set ctx to ctx + " [" + step["name"] + " => ERROR: " + err + "]"
+        otherwise
+            journal.record("chat-agent", "tool-rejected", text(step["name"]))
+            set ctx to ctx + " [" + text(step["name"]) + " => ERROR: tool not allowed]"
+    -- Out of steps: force a final answer with what was gathered (empty catalog
+    -- = the model cannot ask for more tools).
+    let last be llm_step(question, [], ctx)
+    give last["text"]
