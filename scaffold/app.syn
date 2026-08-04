@@ -1,0 +1,47 @@
+-- Your first Synfide app: a durable workflow with a human approval in the middle.
+--
+--   synsema run app.syn      ← run it; approve (or deny) when asked
+--   synsema run app.syn      ← run it AGAIN: completed steps never re-run
+--
+-- Everything below survives crashes and restarts — state lives in .synsema/
+-- (delete that folder to start over). When you outgrow the terminal, the same
+-- workflow serves over HTTP with an approval inbox: see the examples in
+-- https://github.com/kitecosmic/synfide
+intent: "My first durable, approvable Synfide workflow"
+
+require memory("my-synfide-app")
+require time
+require stdout
+
+use "./synfide/durable.syn" as durable
+use "./synfide/approvals.syn" as approvals
+
+task draft(ctx)
+    print("drafting " + ctx["what"] + "…")
+    give "draft ready"
+
+task human_gate(ctx)
+    give approvals.gate("ship-it", "Ship " + ctx["what"] + "?")
+
+task ship(ctx)
+    print("shipping!")
+    give "shipped"
+
+let steps be [
+    {"name": "draft", "run": draft},
+    {"name": "gate", "run": human_gate},
+    {"name": "ship", "run": ship}
+]
+
+let r be durable.run("first-workflow", steps, {"what": "my first release"})
+
+when r["status"] == "waiting"
+    -- The workflow is PARKED (no thread blocked). Ask the human right here —
+    -- in a server this is an inbox route + the heartbeat (durable.tick).
+    print("pending approvals: " + json_encode(approvals.pending()))
+    let ok be approve "Approve 'ship-it'?"
+    approvals.resolve("ship-it", ok, "you")
+    set r to durable.run("first-workflow", steps, {})
+
+print("result: " + json_encode(r))
+print(progress_display("first-workflow"))

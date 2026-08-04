@@ -1,0 +1,30 @@
+{
+  "version": "v0.1.0",
+  "files": [
+    {
+      "src": "synfide/store.syn",
+      "dest": "synfide/store.syn",
+      "sha256": "ed1c4b7a0c2a367788e83a245d7e33c20f7d79dafbbcc875cdecf4945ce21cc3"
+    },
+    {
+      "src": "synfide/durable.syn",
+      "dest": "synfide/durable.syn",
+      "sha256": "713fbd97d618d46a0e7d5918e30785eb288f98c87a123b56a2ac38a1b80a608a"
+    },
+    {
+      "src": "synfide/approvals.syn",
+      "dest": "synfide/approvals.syn",
+      "sha256": "239e4ed865028f84f69dbf7447e635bc218fa6e6bf457baf58d3aec058e15ca0"
+    },
+    {
+      "src": "scaffold/app.syn",
+      "dest": "app.syn",
+      "sha256": "824eb0cc920c54dfab9770aae0d0c8e8d64c4bf1f3d6b281637d69493c08ac80"
+    },
+    {
+      "src": "test_synfide.syn",
+      "dest": "test_synfide.syn",
+      "sha256": "b28540a4d9318619180f42b672f7e795d446558be87da0c63a13e2f3ea8cf741"
+    }
+  ]
+}
