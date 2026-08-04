@@ -1,0 +1,45 @@
+-- Synfide · cassettes — record/replay for LLM calls: behavioral tests that run
+-- cheap, deterministic and offline.
+--
+-- Evals are NOT retries. A retry is runtime resilience (something failed, try
+-- again — that's durable's job). An eval is a DEVELOPMENT test: "after I changed
+-- this prompt, does the agent still answer the way the suite expects?". Cassettes
+-- make that affordable: record real answers once, replay them forever — in CI,
+-- with no network, no tokens spent, and no provider configured at all.
+--
+-- Provider-agnostic by construction: recording goes through the runtime's
+-- configured provider (Claude, GPT, MiniMax, DeepSeek, or a local GGUF — the
+-- program never names one); replaying needs no provider whatsoever.
+--
+-- The ENTRY declares `require memory(...)` (cassettes persist there) and, under
+-- `serve`, `require llm` for the record path.
+
+use "./store.syn" as store
+
+task key(prompt)
+    give "synfide-cst:" + prompt
+
+-- ask(mode, prompt) → the answer.
+--   "off"     → passthrough: just call the model (no cassette involved).
+--   "record"  → call the model AND save prompt → answer.
+--   "replay"  → return the recorded answer; no model call, no network. A prompt
+--               with no cassette raises (a test that silently hit the network
+--               would defeat the point).
+export task ask(mode, prompt)
+    when mode == "replay"
+        let hit be store.get(key(prompt), nothing)
+        when hit == nothing
+            raise("cassettes: no recording for this prompt — run once with mode \"record\" first")
+        give hit["answer"]
+    let answer be reason about prompt
+    when mode == "record"
+        store.put(key(prompt), {"prompt": prompt, "answer": answer})
+    give answer
+
+-- recorded() → every cassette on file: [{prompt, answer}].
+export task recorded()
+    give apply(store.list("synfide-cst:"), (kv) => kv["value"])
+
+-- forget(prompt) → 1 if a cassette was deleted, 0 if none existed.
+export task forget(prompt)
+    give store.del(key(prompt))

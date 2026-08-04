@@ -1,0 +1,78 @@
+-- Synfide · treasury — money with a seatbelt, PSP-agnostic and currency-agnostic.
+--
+-- Three layers, each catching what the previous one missed:
+--   1. YOUR policy (this module): named budgets per scope ("marketing", "agent-7"),
+--      any unit ("USD", "EUR", "credits"). Softest, most expressive.
+--   2. The runtime ledger: every pay() declares the spend with Synsema's `spend()`
+--      — append-only audited `spend.log`, and the HOST ceiling
+--      (`SYNSEMA_SPEND_CEILING="USD:500"`) that no code can raise.
+--   3. Capability isolation: the payment task runs under `call_tool`, so it can
+--      only touch what it declared (`net("api.your-psp.com")`) — an injected tool
+--      without the capability cannot pay at all.
+--
+-- The ENTRY declares the capabilities: `require spend("USD")` (or a prefix),
+-- `require time`, and the `net(...)` of whichever PSP the payment task talks to.
+-- This module is agnostic: it never names a provider, a currency, or a host.
+
+use "./store.syn" as store
+
+task budget_key(scope, unit)
+    give "synfide-tsy-budget:" + scope + ":" + unit
+
+task spent_key(scope, unit)
+    give "synfide-tsy-spent:" + scope + ":" + unit
+
+-- set_budget(scope, unit, amount) — the in-language budget for a scope. Sits
+-- ABOVE the host ceiling: the ceiling is the hard floor nobody can cross; this
+-- is your finer-grained policy (per agent, per team, per campaign).
+export task set_budget(scope, unit, amount)
+    give store.put(budget_key(scope, unit), amount)
+
+export task spent(scope, unit)
+    give store.get(spent_key(scope, unit), 0)
+
+-- budget_left(scope, unit) → remaining, or nothing if no budget was set.
+export task budget_left(scope, unit)
+    let b be store.get(budget_key(scope, unit), nothing)
+    when b == nothing
+        give nothing
+    give b - spent(scope, unit)
+
+-- pay(scope, amount, unit, why, pay_task) → {"ok": true, "receipt": …, "scope_spent": …}
+--
+-- The full guarded path:
+--   policy   → if the scope has a budget and this pay would exceed it: raise
+--              BEFORE anything is declared or moved.
+--   declare  → spend(amount, unit, …): audited ledger entry + host ceiling
+--              (breach = hard error, also before any money moves).
+--   execute  → call_tool(pay_task, {amount, unit, why}): least-privilege — the
+--              task reaches ONLY the capabilities it declared.
+--   record   → the payment lands in the treasury log (store), scope spent grows.
+--
+-- If the payment task FAILS after the spend was declared, the runtime ledger
+-- over-counts reality by that amount: treasury records a DISCREPANCY entry for
+-- reconciliation and re-raises — never a silent mismatch.
+export task pay(scope, amount, unit, why, pay_task)
+    let left be budget_left(scope, unit)
+    when left != nothing
+        when amount > left
+            raise("treasury: scope \"" + scope + "\" budget exceeded — " + text(amount) + " " + unit + " requested, " + text(left) + " left. Nothing was declared or moved.")
+    spend(amount, unit, "[" + scope + "] " + why)
+    let receipt be nothing
+    try
+        set receipt to call_tool(pay_task, {"amount": amount, "unit": unit, "why": why})
+    recover err
+        store.put("synfide-tsy-discrepancy:" + text(now()), {
+            "scope": scope, "amount": amount, "unit": unit, "why": why,
+            "error": err, "at": text(now())
+        })
+        raise("treasury: the payment task failed AFTER the spend was declared — the runtime ledger over-counts by " + text(amount) + " " + unit + "; a discrepancy record was stored for reconciliation. Cause: " + err)
+    store.put(spent_key(scope, unit), spent(scope, unit) + amount)
+    store.put("synfide-tsy-pay:" + text(now()), {
+        "scope": scope, "amount": amount, "unit": unit, "why": why, "at": text(now())
+    })
+    give {"ok": true, "receipt": receipt, "scope_spent": spent(scope, unit)}
+
+-- discrepancies() → every payment that failed after its spend was declared.
+export task discrepancies()
+    give apply(store.list("synfide-tsy-discrepancy:"), (kv) => kv["value"])

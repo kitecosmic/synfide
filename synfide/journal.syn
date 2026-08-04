@@ -1,0 +1,51 @@
+-- Synfide · journal — what did the agent DO? An ordered action journal over the
+-- tool dispatcher, so "trust me" becomes "read the record".
+--
+-- Every dispatch lands in the journal: allowed and executed, rejected by the
+-- allow-list, or failed — with actor, action, detail and timestamp. Combined
+-- with `call_tool` least-privilege (a tool only reaches the capabilities it
+-- declared), the journal is the narrative half of the security story; the
+-- capability audit logs (reveal/sign/wallet/spend.log) are the forensic half.
+--
+-- The ENTRY declares `require memory(...)` and `require time`.
+
+use "./store.syn" as store
+
+task next_n()
+    let n be store.get("synfide-jrn-n", 0) + 1
+    store.put("synfide-jrn-n", n)
+    give n
+
+-- record(actor, action, detail) → the journal entry it wrote.
+export task record(actor, action, detail)
+    let e be {
+        "n": next_n(),
+        "at": text(now()),
+        "actor": actor,
+        "action": action,
+        "detail": detail
+    }
+    store.put("synfide-jrn:" + text(e["n"]), e)
+    give e
+
+-- dispatch(tools, name, args, actor) → the tool's result, with EVERYTHING
+-- journaled. `tools` is your allow-list (name → task); a name outside it is
+-- rejected and recorded (a hallucinated or injected tool never runs); the tool
+-- itself runs under call_tool (least-privilege). Errors are journaled and
+-- re-raised — the journal observes, it never swallows.
+export task dispatch(tools, name, args, actor)
+    when not contains(tools, name)
+        record(actor, "tool-rejected", name)
+        raise("journal: tool not in allow-list: " + name)
+    try
+        let r be call_tool(tools[name], args)
+        record(actor, "tool-ok", name)
+        give r
+    recover err
+        record(actor, "tool-error", name + " :: " + err)
+        raise(err)
+
+-- entries() → the whole journal, oldest first (n ascending).
+export task entries()
+    let vals be apply(store.list("synfide-jrn:"), (kv) => kv["value"])
+    give sort_by(vals, (e) => e["n"])

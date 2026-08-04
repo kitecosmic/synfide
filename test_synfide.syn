@@ -1,15 +1,20 @@
--- Synfide test suite. Run with a FRESH state dir so tests are deterministic:
+-- Synfide test suite. Run with FRESH state and audit dirs so tests are
+-- deterministic and never touch your real audit logs:
 --
---   SYNSEMA_STATE_DIR=$(mktemp -d) synsema test test_synfide.syn
+--   SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
 --
-intent: "Prove store upsert, durable re-entry (done/waiting/failed) and approvals as data"
+intent: "Prove store, durable re-entry, approvals, treasury, cassettes and journal"
 
 require memory("synfide-tests")
 require time
+require spend("T_*")
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
+use "./synfide/treasury.syn" as treasury
+use "./synfide/cassettes.syn" as cassettes
+use "./synfide/journal.syn" as journal
 
 -- ---------- store ----------
 
@@ -142,3 +147,96 @@ test "approvals + durable: a denial fails the step (recorded, retryable)"
     let r2 be durable.run("t-denied", steps, {})
     assert_eq(r2["status"], "failed")
     assert(contains(r2["error"], "denied by joel"))
+
+-- ---------- treasury ----------
+
+task mock_pay(amount, unit, why)
+    give "receipt-" + text(amount) + "-" + unit
+
+task failing_pay(amount, unit, why)
+    raise("PSP timeout")
+
+test "treasury: pay checks the scope budget, declares the spend, and records"
+    treasury.set_budget("mkt", "T_USD", 100)
+    let r be treasury.pay("mkt", 60, "T_USD", "campaign", mock_pay)
+    assert_eq(r["ok"], true)
+    assert_eq(r["receipt"], "receipt-60-T_USD")
+    assert_eq(r["scope_spent"], 60)
+    assert_eq(treasury.budget_left("mkt", "T_USD"), 40)
+    assert_eq(spend_total("T_USD"), 60, "el ledger del runtime tambien lo vio")
+
+test "treasury: the policy cut happens BEFORE anything is declared or moved"
+    let before be spend_total("T_USD")
+    let msg be ""
+    try
+        treasury.pay("mkt", 50, "T_USD", "over budget", mock_pay)
+    recover err
+        set msg to err
+    assert(contains(msg, "budget exceeded"))
+    assert_eq(spend_total("T_USD"), before, "nada llego al ledger del runtime")
+    assert_eq(treasury.spent("mkt", "T_USD"), 60, "el scope no crecio")
+
+test "treasury: a payment that fails AFTER the spend is a recorded discrepancy"
+    let before be spend_total("T_USD")
+    let msg be ""
+    try
+        treasury.pay("ops", 25, "T_USD", "flaky psp", failing_pay)
+    recover err
+        set msg to err
+    assert(contains(msg, "AFTER the spend was declared"))
+    assert_eq(spend_total("T_USD"), before + 25, "el ledger declara ANTES: sobre-cuenta honesta")
+    assert_eq(treasury.spent("ops", "T_USD"), 0, "el scope NO registra un pago que no ocurrio")
+    assert_eq(length(treasury.discrepancies()), 1)
+    assert(contains(treasury.discrepancies()[0]["error"], "PSP timeout"))
+
+test "treasury: a scope without budget only rides the runtime ledger"
+    let r be treasury.pay("free", 5, "T_USD", "no policy", mock_pay)
+    assert_eq(r["ok"], true)
+    assert_eq(treasury.budget_left("free", "T_USD"), nothing)
+
+-- ---------- cassettes ----------
+
+test "cassettes: record then replay — the replay needs no provider at all"
+    let a1 be cassettes.ask("record", "what is the capital of france")
+    let a2 be cassettes.ask("replay", "what is the capital of france")
+    assert_eq(a1, a2)
+    assert_eq(length(cassettes.recorded()), 1)
+
+test "cassettes: replay without a recording raises (never silently hits the network)"
+    let msg be ""
+    try
+        cassettes.ask("replay", "never recorded prompt")
+    recover err
+        set msg to err
+    assert(contains(msg, "no recording"))
+    assert_eq(cassettes.forget("what is the capital of france"), 1)
+    assert_eq(length(cassettes.recorded()), 0)
+
+-- ---------- journal ----------
+
+task tool_hello(name)
+    give "hello " + name
+
+task tool_boom()
+    raise("tool exploded")
+
+test "journal: dispatch journals ok, rejected and error — in order, nothing swallowed"
+    let tools be {"hello": tool_hello, "boom": tool_boom}
+    assert_eq(journal.dispatch(tools, "hello", {"name": "ana"}, "agent-1"), "hello ana")
+    let m1 be ""
+    try
+        journal.dispatch(tools, "hacked_tool", {}, "agent-1")
+    recover err
+        set m1 to err
+    assert(contains(m1, "not in allow-list"))
+    let m2 be ""
+    try
+        journal.dispatch(tools, "boom", {}, "agent-1")
+    recover err
+        set m2 to err
+    assert(contains(m2, "tool exploded"))
+    let es be journal.entries()
+    assert_eq(length(es), 3)
+    assert_eq(apply(es, (e) => e["action"]), ["tool-ok", "tool-rejected", "tool-error"])
+    assert_eq(es[0]["n"], 1)
+    assert_eq(es[2]["actor"], "agent-1")
