@@ -48,11 +48,20 @@ task ctx_key(name)
 --   error   → the definition is wrong (a recorded step is missing from `steps`)
 -- First call creates the progress and seeds the context; later calls IGNORE
 -- `seed` and resume from the persisted context. Re-entry is the whole point:
--- run() is safe to call as many times as you like.
+-- run() is safe to call as many times as you like. Every call also updates the
+-- REGISTRY (see workflows()/tick() below) with the workflow's latest status.
 export task run(name, steps, seed)
+    let r be advance(name, steps, seed)
+    let entry be {"name": name, "status": r["status"]}
+    when contains(r, "step")
+        set entry["step"] to r["step"]
+    store.put("synfide-wf:" + name, entry)
+    give r
+
+task advance(name, steps, seed)
     when store.get("synfide-wf:" + name, nothing) == nothing
         create_progress(name, apply(steps, (s) => s["name"]))
-        store.put("synfide-wf:" + name, {"created": true})
+        store.put("synfide-wf:" + name, {"name": name, "status": "created"})
         store.put(ctx_key(name), seed)
     let ctx be store.get(ctx_key(name), seed)
     let next be resume_point(name)
@@ -82,3 +91,32 @@ export task status_of(name)
         "display": progress_display(name),
         "ctx": store.get(ctx_key(name), nothing)
     }
+
+-- workflows(prefix) → the registry: [{"name", "status", "step"?}] for every
+-- workflow whose name starts with `prefix` ("" = all). The status is the result
+-- of that workflow's LAST run() — created/done/waiting/failed/error.
+export task workflows(prefix)
+    give apply(store.list("synfide-wf:" + prefix), (kv) => kv["value"])
+
+-- tick(defs) — the re-entry heartbeat. `defs` maps name prefixes to their step
+-- lists: [{"prefix": "onboarding-", "steps": [...]}]. Every workflow currently
+-- registered as "waiting" under a def's prefix is re-run once; returns what woke
+-- up and where it landed: [{"name", "status"}].
+--
+-- Wire it to the scheduler in your entry and parked workflows advance THEMSELVES
+-- as soon as the world acts (an approval arrives, an external event lands):
+--
+--     task heartbeat()
+--         durable.tick([{"prefix": "onboarding-", "steps": wf_steps()}])
+--     cron_every(30, heartbeat)
+--
+-- Only "waiting" workflows are ticked — "failed" ones stay put (retrying them
+-- blindly would hot-loop a permanent error; retry those explicitly with run()).
+export task tick(defs)
+    let woken be []
+    each d in defs
+        let parked be where(workflows(d["prefix"]), (w) => w["status"] == "waiting")
+        each w in parked
+            let r be run(w["name"], d["steps"], {})
+            set woken to woken + [{"name": w["name"], "status": r["status"]}]
+    give woken

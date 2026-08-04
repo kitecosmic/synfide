@@ -98,6 +98,39 @@ test "approvals + durable: gate parks, approval lets it through"
     assert_eq(r2["status"], "done")
     assert_eq(r2["ctx"]["gate"]["status"], "approved")
 
+-- ---------- registry + tick ----------
+
+test "registry: workflows(prefix) reports each workflow's last status"
+    durable.run("reg-a", happy_steps(), {})
+    let steps be [{"name": "park", "run": s_parks}]
+    durable.run("reg-b", steps, {})
+    let regs be durable.workflows("reg-")
+    assert_eq(length(regs), 2)
+    let done be where(regs, (w) => w["status"] == "done")
+    let waiting be where(regs, (w) => w["status"] == "waiting")
+    assert_eq(length(done), 1)
+    assert_eq(done[0]["name"], "reg-a")
+    assert_eq(waiting[0]["step"], "park")
+    assert_eq(length(durable.workflows("otra-cosa")), 0)
+
+task s_tick_gate(ctx)
+    give approvals.gate("ap-tick", "tick gate?")
+
+test "tick: re-runs only the waiting workflows of the matching prefix"
+    let steps be [{"name": "gate", "run": s_tick_gate}]
+    durable.run("tk-1", steps, {})
+    let defs be [{"prefix": "tk-", "steps": steps}]
+    -- still pending → the tick re-runs it but it parks again
+    let w1 be durable.tick(defs)
+    assert_eq(length(w1), 1)
+    assert_eq(w1[0]["status"], "waiting")
+    -- approval lands → the NEXT tick finishes it, no manual run() needed
+    approvals.resolve("ap-tick", true, "joel")
+    let w2 be durable.tick(defs)
+    assert_eq(w2, [{"name": "tk-1", "status": "done"}])
+    -- done workflows are not ticked again
+    assert_eq(durable.tick(defs), [])
+
 task s_gate_denied(ctx)
     give approvals.gate("ap-denied", "gate?")
 

@@ -9,8 +9,10 @@
 --   # 3. the human decides (from anywhere — this route, a bot, a CLI):
 --   curl -X POST localhost:8080/inbox/onboarding-ana \
 --        -d '{"approved": true, "who": "joel"}'
---   # 4. advance the workflow — it resumes past the approval and finishes:
---   curl -X POST localhost:8080/onboarding/ana/start
+--   # 4. nothing else to do: the heartbeat (cron, every 15s) re-runs parked
+--   #    workflows, so the onboarding finishes BY ITSELF. (POST …/start still
+--   #    works if you want to advance it immediately.)
+--   curl localhost:8080/onboarding/ana        # → watch it reach "done"
 --   # …and the whole thing survives a server restart at any point in between.
 intent: "Onboard employees with a durable workflow parked on human approval"
 
@@ -40,6 +42,15 @@ task wf_steps()
 
 task wf_name(employee)
     give "onboarding-" + employee
+
+-- The re-entry heartbeat: every parked onboarding advances by itself as soon
+-- as its approval lands — no second POST needed.
+task heartbeat()
+    let woken be durable.tick([{"prefix": "onboarding-", "steps": wf_steps()}])
+    when length(woken) > 0
+        log "heartbeat woke: " + json_encode(woken)
+
+cron_every(15, heartbeat)
 
 serve on 8080
     route "POST /onboarding/:employee/start"

@@ -36,7 +36,7 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 
 | Package | What it gives you |
 |---|---|
-| `durable` | Re-entrant workflows: named steps, persisted progress, resume exactly where a crash or restart left off |
+| `durable` | Re-entrant workflows: named steps, persisted progress, resume exactly where a crash or restart left off; a registry of every workflow's status and a `tick()` heartbeat that advances parked workflows by itself |
 | `approvals` | Human-in-the-loop as data: an approval inbox that frees the thread and survives days of waiting, webhooks to any channel |
 | `treasury` | Payment connectors that compose scoped network access with the audited spend ledger; budget policy per agent and per role |
 | `cassettes` | Record/replay of LLM calls — behavioral CI that runs cheap and deterministic |
@@ -49,7 +49,7 @@ Plus scaffolding: conventional project layout, per-environment capability profil
 The first three packages — `store`, `durable`, `approvals` — are here and tested. Clone this repo and:
 
 ```bash
-# the test suite (8 tests: upsert, re-entry, park/resume, approve/deny):
+# the test suite (10 tests: upsert, re-entry, park/resume, approve/deny, registry, tick):
 SYNSEMA_STATE_DIR=$(mktemp -d) synsema test test_synfide.syn
 
 # a durable pipeline you can kill and resume (completed steps are never re-run):
@@ -57,12 +57,13 @@ CRASH=1 synsema run example_pipeline.syn    # dies at "validate"
 synsema run example_pipeline.syn            # resumes AT "validate" and finishes
 
 # the flagship: an onboarding service parked on human approval —
-# and it survives a full server restart while parked:
+# it survives a full server restart while parked, and once the human answers,
+# the heartbeat finishes it BY ITSELF (no second request):
 synsema serve example_onboarding.syn
 curl -X POST localhost:8080/onboarding/ana/start          # → parks at "approval"
 curl localhost:8080/inbox                                 # → what awaits a human
 curl -X POST localhost:8080/inbox/onboarding-ana -d '{"approved": true, "who": "you"}'
-curl -X POST localhost:8080/onboarding/ana/start          # → resumes, "done"
+sleep 15 && curl localhost:8080/onboarding/ana            # → "done", woken by the heartbeat
 ```
 
 Every example file documents its own flow at the top. Use the packages from your own entry file with `use "./synfide/durable.syn" as durable` — your entry declares the capabilities (`require memory("your-app")`, `require serve(8080)`, …); the packages never grab any.
