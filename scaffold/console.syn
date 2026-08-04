@@ -50,6 +50,11 @@ task arg_of(t)
     give trim(parts[1])
 
 print("synfide console → " + base + "   (l=list  a <id>  d <id>  g <path>  q=quit)")
+-- Say it UP FRONT if there is nothing listening — a silent prompt against a dead
+-- URL was the first thing a real user hit.
+let probe be http_get(base + "/inbox")
+when not (ok of probe)
+    print("⚠ no server at " + base + " — start it in another terminal:  synsema serve serve.syn")
 let running be true
 while running
     flush()

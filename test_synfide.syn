@@ -260,3 +260,19 @@ test "ui: decide resolves, journals, and redirects back to the inbox"
     assert_eq(approvals.status("ui-1")["decided_by"], "web", "quien vacio cae a \"web\"")
     let acts be apply(journal.entries(), (e) => e["action"])
     assert(contains(acts, "ui-decision"))
+
+-- ---------- chat ----------
+
+test "chat: send records both sides and the page renders them escaped"
+    ui.chat_send("hola <b>mundo</b>")
+    let page be ui.chat_page()
+    assert(contains(page, "hola &lt;b&gt;mundo&lt;/b&gt;"), "el mensaje del usuario, escapado")
+    assert(not contains(page, "<b>mundo</b>"))
+    assert(contains(page, "assistant"), "hay respuesta del asistente (offline = placeholder)")
+    assert(contains(page, "/chat/send"), "el form apunta a la ruta de envio")
+
+test "chat: an empty message is a no-op redirect, history intact"
+    ui.chat_send("")
+    ui.chat_send(nothing)
+    let page be ui.chat_page()
+    assert(contains(page, "hola &lt;b&gt;mundo&lt;/b&gt;"), "la historia sigue")

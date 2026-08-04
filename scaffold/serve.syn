@@ -1,0 +1,85 @@
+-- Your Synfide SERVER: chat + approval inbox + a durable demo workflow, all in
+-- one process. This is the file the console and the browser talk to.
+--
+--   synsema serve serve.syn
+--
+--   http://localhost:8080          → home (links to everything)
+--   http://localhost:8080/chat     → chat with your configured LLM provider
+--   http://localhost:8080/inbox/ui → the approval inbox (works on a phone)
+--
+--   # start a demo workflow that parks on a human approval:
+--   curl -X POST localhost:8080/demo/ana/start
+--   # approve it in the browser (or the console) — the heartbeat finishes it.
+--
+-- It shares state with app.syn (same declared memory), survives restarts, and
+-- the operator console (synsema run console.syn) talks to it over this API.
+intent: "Chat + approval inbox + durable demo workflow, served"
+
+require memory("my-synfide-app")
+require serve(8080)
+require stdout
+require time
+require llm
+
+use "./synfide/durable.syn" as durable
+use "./synfide/approvals.syn" as approvals
+use "./synfide/ui.syn" as ui
+
+task prepare(ctx)
+    give "prepared " + ctx["name"]
+
+task approval(ctx)
+    give approvals.gate("demo-" + ctx["name"], "Approve demo for " + ctx["name"] + "?")
+
+task activate(ctx)
+    give "activated " + ctx["name"]
+
+task wf_steps()
+    give [
+        {"name": "prepare", "run": prepare},
+        {"name": "approval", "run": approval},
+        {"name": "activate", "run": activate}
+    ]
+
+task heartbeat()
+    let woken be durable.tick([{"prefix": "demo-", "steps": wf_steps()}])
+    when length(woken) > 0
+        log "heartbeat woke: " + json_encode(woken)
+
+cron_every(15, heartbeat)
+
+serve on 8080
+    route "GET /"
+        give html(ui.home_page())
+
+    route "GET /chat"
+        give html(ui.chat_page())
+
+    route "GET /chat/send"
+        give ui.chat_send(query.message)
+
+    route "GET /inbox"
+        give approvals.pending()
+
+    route "GET /inbox/ui"
+        give html(ui.inbox_page())
+
+    route "GET /inbox/ui/decide"
+        give ui.resolve(query.id, query.approved, query.who)
+
+    route "POST /inbox/:id"
+        let b be json of request
+        when b == nothing
+            give fail("body must be JSON: {\"approved\": true|false, \"who\": \"name\"}")
+        let d be approvals.resolve(params.id, b["approved"], b["who"])
+        when d == nothing
+            give not_found("no such approval: " + params.id)
+        log "decision on " + params.id + " by " + text(b["who"])
+        give d
+
+    route "POST /demo/:name/start"
+        log "demo run: " + params.name
+        give durable.run("demo-" + params.name, wf_steps(), {"name": params.name})
+
+    route "GET /demo/:name"
+        give durable.status_of("demo-" + params.name)

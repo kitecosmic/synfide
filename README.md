@@ -14,9 +14,12 @@ curl -fsSL https://synsema.com/install.sh | sh
 synsema init --synfide
 
 # 3. Configure and run
-cp .env.example .env     # open it, pick your LLM provider, paste its API key
-synsema run app.syn
+cp .env.example .env       # open it, pick your LLM provider, paste its API key
+synsema run app.syn        # your first durable workflow, in the terminal
+synsema serve serve.syn    # …and your server: http://localhost:8080
 ```
+
+With the server up: **`/chat`** talks to your configured LLM provider (any of them, or a local model), **`/inbox/ui`** is the one-click approval inbox (works on a phone), and `synsema run console.syn` is the same thing from a terminal.
 
 That's the whole setup. The generated `.env.example` documents **every** variable on its own line — all supported LLM providers (including fully local GGUF models that need no key at all), the human-approval webhooks, and the host ceilings for money and tokens. Copy it to `.env`, uncomment what you use, done. Nothing is guessed, nothing is hidden.
 
@@ -69,6 +72,16 @@ synsema run console.syn                                   # l · a <id> · d <id
 ```
 
 Every example file documents its own flow at the top. Use the packages from your own entry file with `use "./synfide/durable.syn" as durable` — your entry declares the capabilities (`require memory("your-app")`, `require serve(8080)`, …); the packages never grab any.
+
+## Update & version
+
+Your installed version is in `synfide/VERSION`. To update, just re-run:
+
+```bash
+synsema init --synfide
+```
+
+Already up to date → it says so and touches nothing. Newer release → framework files (`synfide/`) update; **your files are never overwritten**, and a framework file you edited is kept too — the new version lands beside it as `<file>.new` with a loud warning. All framework content and versions come from THIS repo's releases; updating Synfide never requires updating Synsema.
 
 ## Status
 

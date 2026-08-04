@@ -87,6 +87,81 @@ export task inbox_page()
     set h to h + "</body></html>"
     give h
 
+-- ---------- chat ----------
+-- A minimal chat over the runtime's configured LLM provider (any of them, or a
+-- local GGUF — the framework never names one). History persists in the store;
+-- offline it still works, answering with the runtime's placeholder and showing
+-- a banner telling you to configure .env. No JS: plain forms + reload.
+
+task chat_next_n()
+    let n be store.get("synfide-chat-n", 0) + 1
+    store.put("synfide-chat-n", n)
+    give n
+
+task chat_entries()
+    let vals be apply(store.list("synfide-chat:"), (kv) => kv["value"])
+    give sort_by(vals, (e) => e["n"])
+
+task chat_record(role, content)
+    let n be chat_next_n()
+    store.put("synfide-chat:" + text(n), {"n": n, "role": role, "text": content})
+
+task chat_bubble(e)
+    give "<div class=\"msg " + esc(e["role"]) + "\"><span>" + esc(e["text"]) + "</span></div>"
+
+-- chat_send(message) → answers with the configured provider (recent turns as
+-- context), persists both sides, and redirects back to /chat.
+export task chat_send(message)
+    when message == nothing or trim(text(message)) == ""
+        give redirect("/chat")
+    let msg be trim(text(message))
+    chat_record("user", msg)
+    let es be chat_entries()
+    let maxn be length(es)
+    let recent be where(es, (e) => e["n"] > maxn - 8)
+    let ctx be join(apply(recent, (e) => e["role"] + ": " + e["text"]), "\n")
+    let answer be reason about msg with context = ctx
+    chat_record("assistant", text(answer))
+    give redirect("/chat")
+
+-- chat_page() → the chat as HTML text (wrap with html() in your route).
+export task chat_page()
+    let banner be ""
+    when not llm_available()
+        set banner to "<p class=\"warn\">No LLM provider configured — answers are placeholders. Copy .env.example to .env, pick a provider, paste its key, restart the server.</p>"
+    let msgs be join(apply(chat_entries(), (e) => chat_bubble(e)), "")
+    let h be "<!doctype html><html><head><meta charset=\"utf-8\">"
+    set h to h + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    set h to h + "<title>Synfide — chat</title><style>" + styles() + chat_styles() + "</style></head><body>"
+    set h to h + "<h1>Synfide · chat</h1>" + banner
+    set h to h + "<p class=\"meter\"><a href=\"/inbox/ui\">→ approval inbox</a> · llm tokens: " + esc(llm_usage()) + "</p>"
+    set h to h + "<div class=\"chat\">" + msgs + "</div>"
+    set h to h + "<form class=\"send\" action=\"/chat/send\" method=\"get\">"
+    set h to h + "<input name=\"message\" placeholder=\"Say something…\" autofocus autocomplete=\"off\">"
+    set h to h + "<button class=\"ok\">Send</button></form>"
+    set h to h + "</body></html>"
+    give h
+
+task chat_styles()
+    let c be ".chat{display:flex;flex-direction:column;gap:.5rem;margin:1rem 0}"
+    set c to c + ".msg{display:flex} .msg span{padding:.55rem .8rem;border-radius:12px;max-width:85%;white-space:pre-wrap}"
+    set c to c + ".msg.user{justify-content:flex-end} .msg.user span{background:#2563eb;color:#fff}"
+    set c to c + ".msg.assistant span{background:#fff;border:1px solid #ddd}"
+    set c to c + ".send{display:flex;gap:.5rem} .send input{flex:1;padding:.55rem;border:1px solid #ccc;border-radius:8px}"
+    set c to c + ".warn{background:#fef3c7;border:1px solid #f59e0b;padding:.6rem .8rem;border-radius:8px}"
+    give c
+
+-- home_page() → a tiny landing linking the surfaces (route it at GET /).
+export task home_page()
+    let h be "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    set h to h + "<title>Synfide</title><style>" + styles() + "</style></head><body>"
+    set h to h + "<h1>Synfide · your app is running</h1>"
+    set h to h + "<div class=\"card\"><a href=\"/chat\">💬 Chat</a> — talk to the configured LLM provider</div>"
+    set h to h + "<div class=\"card\"><a href=\"/inbox/ui\">✅ Approval inbox</a> — what waits for a human</div>"
+    set h to h + "<p class=\"meter\">operator console from a terminal: <code>synsema run console.syn</code></p>"
+    set h to h + "</body></html>"
+    give h
+
 -- resolve(id, approved_text, who_text) → records the decision (journaled) and
 -- redirects back to the inbox. `approved` is the form value ("yes"/"no").
 export task resolve(id, approved_text, who_text)
