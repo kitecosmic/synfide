@@ -1,0 +1,84 @@
+-- Synfide · durable — re-entrant workflows that survive crashes, restarts, and
+-- days-long human waits. No blocked threads, no extra services: each call to
+-- run() advances the workflow as far as it can and RETURNS; call it again
+-- (from a route, a cron tick, or the CLI) and it resumes exactly where it left
+-- off, skipping every completed step.
+--
+-- A workflow is a list of steps: [{"name": text, "run": task(ctx)}]. Each step
+-- receives the persistent context map and its result is stored under the step's
+-- name in that context. A step can:
+--   - give a value            → the step completes, the workflow advances
+--   - give wait("reason")     → the workflow PARKS (nothing marked, thread freed);
+--                               the next run() retries this same step
+--   - raise "error"           → the step is recorded as failed; the next run()
+--                               retries it (fix the cause, call run() again)
+--
+-- The entry program declares `require memory("name")` (progress + context live
+-- in the state DB) — this module declares nothing top-level, as modules must.
+
+use "./store.syn" as store
+
+-- The park sentinel. Steps return wait("reason") when the world outside must
+-- act first (a human approval, an external event) — see synfide/approvals.syn.
+export task wait(why)
+    give {"synfide": "wait", "reason": why}
+
+task is_wait(r)
+    -- `and` does not short-circuit in Synsema: index only AFTER contains() said yes.
+    when type_of(r) == "map"
+        when contains(r, "synfide")
+            give r["synfide"] == "wait"
+    give false
+
+task find_step(steps, name)
+    let i be 0
+    while i < length(steps)
+        when steps[i]["name"] == name
+            give steps[i]
+        set i to i + 1
+    give nothing
+
+task ctx_key(name)
+    give "synfide-wf-ctx:" + name
+
+-- run(name, steps, seed) → {"status": "done"|"waiting"|"failed"|"error", ...}.
+--   done    → every step completed;  "ctx" carries all results
+--   waiting → "step" is parked on "reason"; call run() again after the world acts
+--   failed  → "step" raised "error"; the next run() retries that step
+--   error   → the definition is wrong (a recorded step is missing from `steps`)
+-- First call creates the progress and seeds the context; later calls IGNORE
+-- `seed` and resume from the persisted context. Re-entry is the whole point:
+-- run() is safe to call as many times as you like.
+export task run(name, steps, seed)
+    when store.get("synfide-wf:" + name, nothing) == nothing
+        create_progress(name, apply(steps, (s) => s["name"]))
+        store.put("synfide-wf:" + name, {"created": true})
+        store.put(ctx_key(name), seed)
+    let ctx be store.get(ctx_key(name), seed)
+    let next be resume_point(name)
+    while next != nothing
+        let stepdef be find_step(steps, next)
+        when stepdef == nothing
+            give {"status": "error", "step": next, "detail": "recorded step is not in the steps list"}
+        try
+            let r be call(stepdef["run"], {"ctx": ctx})
+            when is_wait(r)
+                give {"status": "waiting", "step": next, "reason": r["reason"], "ctx": ctx}
+            start_step(name, next)
+            complete_step(name, next, text(r))
+            set ctx[next] to r
+            store.put(ctx_key(name), ctx)
+        recover err
+            start_step(name, next)
+            fail_step(name, next, err)
+            give {"status": "failed", "step": next, "error": err, "ctx": ctx}
+        set next to resume_point(name)
+    give {"status": "done", "ctx": store.get(ctx_key(name), ctx)}
+
+-- status_of(name) → where the workflow stands, without advancing it.
+export task status_of(name)
+    give {
+        "next": resume_point(name),
+        "display": progress_display(name),
+        "ctx": store.get(ctx_key(name), nothing)
+    }

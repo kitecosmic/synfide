@@ -1,0 +1,39 @@
+-- Synfide example · a durable pipeline you can kill and resume.
+--
+--   synsema run example_pipeline.syn                 → runs the 3 steps to done
+--   CRASH=1 synsema run example_pipeline.syn         → "validate" fails mid-flight
+--   synsema run example_pipeline.syn                 → resumes AT "validate";
+--                                                       "extract" is NOT re-run
+--
+-- Delete .synsema/ (next to this file) to start the demo from scratch.
+intent: "Show a re-entrant workflow surviving a crash without re-running completed steps"
+
+require memory("synfide-pipeline-demo")
+require env("CRASH")
+require stdout
+
+use "./synfide/durable.syn" as durable
+
+task extract(ctx)
+    print("extracting from " + ctx["source"] + "…")
+    give 100
+
+task validate(ctx)
+    when env("CRASH", "0") == "1"
+        raise("simulated crash while validating")
+    print("validating " + text(ctx["extract"]) + " rows…")
+    give ctx["extract"] - 3
+
+task load(ctx)
+    print("loading " + text(ctx["validate"]) + " valid rows…")
+    give "loaded"
+
+let steps be [
+    {"name": "extract", "run": extract},
+    {"name": "validate", "run": validate},
+    {"name": "load", "run": load}
+]
+
+let r be durable.run("pipeline-demo", steps, {"source": "demo.csv"})
+print("run() -> " + json_encode(r))
+print(progress_display("pipeline-demo"))

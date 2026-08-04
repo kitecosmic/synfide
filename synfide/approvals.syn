@@ -1,0 +1,65 @@
+-- Synfide · approvals — human-in-the-loop as DATA, not as a blocked thread.
+--
+-- The pattern: an agent step that needs a human does NOT stop the world. It
+-- registers a pending approval and parks its workflow (durable.wait). The human
+-- answers whenever they answer — through a route, a chat bot, a CLI — via
+-- decide(). The next run() of the workflow finds the decision and moves on.
+-- Works across restarts because everything is a record in the state DB.
+--
+-- The entry program declares `require memory("name")` and `require time`
+-- (records carry timestamps). This module declares nothing top-level.
+
+use "./store.syn" as store
+
+let PREFIX be "synfide-appr:"
+
+-- request(id, message) → the approval record (idempotent: if `id` already
+-- exists, the existing record is returned untouched — safe to call on every
+-- workflow re-entry).
+export task request(id, message)
+    let existing be store.get(PREFIX + id, nothing)
+    when existing != nothing
+        give existing
+    give store.put(PREFIX + id, {
+        "id": id,
+        "message": message,
+        "status": "pending",
+        "requested_at": text(now())
+    })
+
+-- status(id) → the record, or nothing if it was never requested.
+export task status(id)
+    give store.get(PREFIX + id, nothing)
+
+-- resolve(id, approved, who) → the updated record, or nothing if unknown id.
+-- `approved` is a bool; `who` is recorded for the audit trail.
+export task resolve(id, approved, who)
+    let a be store.get(PREFIX + id, nothing)
+    when a == nothing
+        give nothing
+    when approved
+        set a["status"] to "approved"
+    otherwise
+        set a["status"] to "denied"
+    set a["decided_by"] to who
+    set a["decided_at"] to text(now())
+    give store.put(PREFIX + id, a)
+
+-- pending() → every approval still waiting for a human, oldest story intact.
+export task pending()
+    let all be store.list(PREFIX)
+    let records be apply(all, (kv) => kv["value"])
+    give where(records, (a) => a["status"] == "pending")
+
+-- gate(id, message) → the piece that plugs into a durable step. Requests the
+-- approval (idempotently) and returns:
+--   still pending → the durable wait sentinel (the workflow parks)
+--   approved      → the approval record (the step can proceed)
+--   denied        → raises, so the workflow records the step as failed
+export task gate(id, message)
+    let a be request(id, message)
+    when a["status"] == "pending"
+        give {"synfide": "wait", "reason": "waiting for human approval: " + id}
+    when a["status"] == "denied"
+        raise("approval " + id + " denied by " + text(a["decided_by"]))
+    give a

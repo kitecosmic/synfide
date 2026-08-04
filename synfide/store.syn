@@ -1,0 +1,51 @@
+-- Synfide · store — persistent key→value with UPSERT semantics, built on Synsema's
+-- declared agent memory. The ENTRY program declares `require memory("name")`; this
+-- module only uses the remember/recall/forget_memory family under that grant
+-- (modules never declare top-level capabilities — that is the entry's contract).
+--
+-- Why: `remember` always appends a new entry. For state (counters, workflow context,
+-- approval records) you want ONE current value per key — put() forgets the old
+-- entries and writes the new one. Values are JSON-encoded, so any value works.
+
+let TAG be "synfide-store"
+
+task forget_entry(e)
+    give forget_memory(e["id"])
+
+task entries_for(key)
+    give recall("context", [TAG, key], nothing, "all", 1000)
+
+-- The key is the tag that is not the store's marker tag.
+task key_of(e)
+    let others be where(e["tags"], (t) => t != TAG)
+    when length(others) == 0
+        give ""
+    give others[0]
+
+task to_kv(e)
+    give {"key": key_of(e), "value": json_decode(e["content"])}
+
+-- put(key, value) → value. Replaces any previous value under the key (upsert).
+export task put(key, value)
+    apply(forget_entry, entries_for(key))
+    remember("context", json_encode(value), [TAG, key])
+    give value
+
+-- get(key, fallback) → the stored value, or `fallback` if the key was never put.
+export task get(key, fallback)
+    let hits be entries_for(key)
+    when length(hits) == 0
+        give fallback
+    give json_decode(hits[0]["content"])
+
+-- del(key) → how many entries were removed (0 or 1 under normal use).
+export task del(key)
+    let hits be entries_for(key)
+    apply(forget_entry, hits)
+    give length(hits)
+
+-- list(prefix) → [{key, value}] for every stored key starting with `prefix`.
+export task list(prefix)
+    let hits be recall("context", [TAG], nothing, "any", 1000)
+    let kvs be apply(to_kv, hits)
+    give where(kvs, (kv) => starts_with(kv["key"], prefix))

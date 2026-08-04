@@ -1,0 +1,61 @@
+-- Synfide example · an onboarding service with a human approval in the middle.
+--
+--   synsema serve example_onboarding.syn
+--
+--   # 1. start (or advance) an onboarding — it parks at the approval step:
+--   curl -X POST localhost:8080/onboarding/ana/start
+--   # 2. see what's waiting for a human:
+--   curl localhost:8080/inbox
+--   # 3. the human decides (from anywhere — this route, a bot, a CLI):
+--   curl -X POST localhost:8080/inbox/onboarding-ana \
+--        -d '{"approved": true, "who": "joel"}'
+--   # 4. advance the workflow — it resumes past the approval and finishes:
+--   curl -X POST localhost:8080/onboarding/ana/start
+--   # …and the whole thing survives a server restart at any point in between.
+intent: "Onboard employees with a durable workflow parked on human approval"
+
+require memory("synfide-onboarding-demo")
+require serve(8080)
+require stdout
+require time
+
+use "./synfide/durable.syn" as durable
+use "./synfide/approvals.syn" as approvals
+
+task prepare(ctx)
+    give "account drafted for " + ctx["employee"]
+
+task approval(ctx)
+    give approvals.gate("onboarding-" + ctx["employee"], "Approve onboarding of " + ctx["employee"] + "?")
+
+task activate(ctx)
+    give "activated " + ctx["employee"]
+
+task wf_steps()
+    give [
+        {"name": "prepare", "run": prepare},
+        {"name": "approval", "run": approval},
+        {"name": "activate", "run": activate}
+    ]
+
+task wf_name(employee)
+    give "onboarding-" + employee
+
+serve on 8080
+    route "POST /onboarding/:employee/start"
+        log "onboarding run: " + params.employee
+        give durable.run(wf_name(params.employee), wf_steps(), {"employee": params.employee})
+
+    route "GET /onboarding/:employee"
+        give durable.status_of(wf_name(params.employee))
+
+    route "GET /inbox"
+        give approvals.pending()
+
+    route "POST /inbox/:id"
+        let b be json of request
+        let d be approvals.resolve(params.id, b["approved"], b["who"])
+        when d == nothing
+            give not_found("no such approval: " + params.id)
+        log "decision on " + params.id + " by " + text(b["who"])
+        give d

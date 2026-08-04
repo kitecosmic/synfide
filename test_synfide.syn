@@ -1,0 +1,111 @@
+-- Synfide test suite. Run with a FRESH state dir so tests are deterministic:
+--
+--   SYNSEMA_STATE_DIR=$(mktemp -d) synsema test test_synfide.syn
+--
+intent: "Prove store upsert, durable re-entry (done/waiting/failed) and approvals as data"
+
+require memory("synfide-tests")
+require time
+
+use "./synfide/store.syn" as store
+use "./synfide/durable.syn" as durable
+use "./synfide/approvals.syn" as approvals
+
+-- ---------- store ----------
+
+test "store: put/get round-trips any JSON value and upserts"
+    store.put("t1:user", {"name": "ana", "n": 3})
+    assert_eq(store.get("t1:user", nothing), {"name": "ana", "n": 3})
+    store.put("t1:user", {"name": "ana", "n": 4})
+    assert_eq(store.get("t1:user", nothing)["n"], 4)
+
+test "store: get falls back, del removes, list filters by prefix"
+    assert_eq(store.get("t2:absent", "fallback"), "fallback")
+    store.put("t2:a", 1)
+    store.put("t2:b", 2)
+    store.put("other:c", 3)
+    assert_eq(length(store.list("t2:")), 2)
+    assert_eq(store.del("t2:a"), 1)
+    assert_eq(length(store.list("t2:")), 1)
+
+-- ---------- durable ----------
+
+task s_one(ctx)
+    give 10
+
+task s_two(ctx)
+    give ctx["one"] + 5
+
+task happy_steps()
+    give [{"name": "one", "run": s_one}, {"name": "two", "run": s_two}]
+
+test "durable: happy path completes and threads results through ctx"
+    let r be durable.run("t-happy", happy_steps(), {"seed": true})
+    assert_eq(r["status"], "done")
+    assert_eq(r["ctx"]["one"], 10)
+    assert_eq(r["ctx"]["two"], 15)
+
+task s_parks(ctx)
+    give durable.wait("external world pending")
+
+test "durable: a waiting step parks the workflow and re-entry retries it"
+    let steps be [{"name": "park", "run": s_parks}]
+    let r1 be durable.run("t-park", steps, {})
+    assert_eq(r1["status"], "waiting")
+    assert_eq(r1["step"], "park")
+    let r2 be durable.run("t-park", steps, {})
+    assert_eq(r2["status"], "waiting", "still parked until the world acts")
+
+task s_boom(ctx)
+    when store.get("t-fixed", nothing) == nothing
+        raise("boom")
+    give "recovered"
+
+test "durable: a failed step is retried on the next run, completed steps are not re-run"
+    let steps be [{"name": "one", "run": s_one}, {"name": "boom", "run": s_boom}]
+    let r1 be durable.run("t-retry", steps, {})
+    assert_eq(r1["status"], "failed")
+    assert_eq(r1["step"], "boom")
+    store.put("t-fixed", true)
+    let r2 be durable.run("t-retry", steps, {})
+    assert_eq(r2["status"], "done")
+    assert_eq(r2["ctx"]["one"], 10, "step one ran in run 1 and was skipped in run 2")
+    assert_eq(r2["ctx"]["boom"], "recovered")
+
+-- ---------- approvals ----------
+
+test "approvals: request is idempotent, decide flips status, pending filters"
+    let a1 be approvals.request("ap-1", "ok to ship?")
+    assert_eq(a1["status"], "pending")
+    let a2 be approvals.request("ap-1", "DIFFERENT message must not overwrite")
+    assert_eq(a2["message"], "ok to ship?")
+    assert_eq(length(approvals.pending()), 1)
+    let d be approvals.resolve("ap-1", true, "joel")
+    assert_eq(d["status"], "approved")
+    assert_eq(d["decided_by"], "joel")
+    assert_eq(length(approvals.pending()), 0)
+    assert_eq(approvals.resolve("ap-unknown", true, "joel"), nothing)
+
+task s_gate(ctx)
+    give approvals.gate("ap-flow", "gate?")
+
+test "approvals + durable: gate parks, approval lets it through"
+    let steps be [{"name": "gate", "run": s_gate}]
+    let r1 be durable.run("t-gate", steps, {})
+    assert_eq(r1["status"], "waiting")
+    approvals.resolve("ap-flow", true, "joel")
+    let r2 be durable.run("t-gate", steps, {})
+    assert_eq(r2["status"], "done")
+    assert_eq(r2["ctx"]["gate"]["status"], "approved")
+
+task s_gate_denied(ctx)
+    give approvals.gate("ap-denied", "gate?")
+
+test "approvals + durable: a denial fails the step (recorded, retryable)"
+    let steps be [{"name": "gate", "run": s_gate_denied}]
+    let r1 be durable.run("t-denied", steps, {})
+    assert_eq(r1["status"], "waiting")
+    approvals.resolve("ap-denied", false, "joel")
+    let r2 be durable.run("t-denied", steps, {})
+    assert_eq(r2["status"], "failed")
+    assert(contains(r2["error"], "denied by joel"))

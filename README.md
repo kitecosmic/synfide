@@ -44,8 +44,31 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 
 Plus scaffolding: conventional project layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
 
+## Try it today (clone-and-run)
+
+The first three packages — `store`, `durable`, `approvals` — are here and tested. Clone this repo and:
+
+```bash
+# the test suite (8 tests: upsert, re-entry, park/resume, approve/deny):
+SYNSEMA_STATE_DIR=$(mktemp -d) synsema test test_synfide.syn
+
+# a durable pipeline you can kill and resume (completed steps are never re-run):
+CRASH=1 synsema run example_pipeline.syn    # dies at "validate"
+synsema run example_pipeline.syn            # resumes AT "validate" and finishes
+
+# the flagship: an onboarding service parked on human approval —
+# and it survives a full server restart while parked:
+synsema serve example_onboarding.syn
+curl -X POST localhost:8080/onboarding/ana/start          # → parks at "approval"
+curl localhost:8080/inbox                                 # → what awaits a human
+curl -X POST localhost:8080/inbox/onboarding-ana -d '{"approved": true, "who": "you"}'
+curl -X POST localhost:8080/onboarding/ana/start          # → resumes, "done"
+```
+
+Every example file documents its own flow at the top. Use the packages from your own entry file with `use "./synfide/durable.syn" as durable` — your entry declares the capabilities (`require memory("your-app")`, `require serve(8080)`, …); the packages never grab any.
+
 ## Status
 
-Under active development. The runtime guarantees Synfide builds on (metering, spend ledger, host ceilings, deny-by-default) are already in the Synsema engine; the framework packages are being extracted from working, probed patterns. The quickstart above is the contract we are building to — it will work exactly as written at first release, and this README will not say it does until it does.
+Under active development. `store` / `durable` / `approvals` are working and tested (above); `treasury`, `cassettes`, `journal` and the `synsema init --synfide` scaffold are next. The quickstart at the top is the contract we are building to — it will work exactly as written at first release, and this README will not say it does until it does.
 
-Downloads are versioned and checksum-verified; the framework is vendored into your project, so upgrades are always explicit.
+Downloads will be versioned and checksum-verified; the framework is vendored into your project, so upgrades are always explicit.
