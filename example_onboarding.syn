@@ -24,6 +24,7 @@ require time
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
+use "./synfide/agent.syn" as agent
 
 task prepare(ctx)
     give "account drafted for " + ctx["employee"]
@@ -44,6 +45,30 @@ task wf_steps()
 task wf_name(employee)
     give "onboarding-" + employee
 
+-- The OPINIONATED demo of the agent chat lives HERE (an example), not in the
+-- neutral scaffold: ask the chat "onboard ana" / "how is ana going?".
+task tool_start_onboarding(name)
+    require memory("synfide-onboarding-demo")
+    require time
+    let r be durable.run(wf_name(name), wf_steps(), {"employee": name})
+    when r["status"] == "waiting"
+        give "onboarding of " + name + " started — WAITING for human approval in /inbox/ui; it finishes by itself once approved"
+    give "onboarding of " + name + ": " + r["status"]
+
+task tool_check_onboarding(name)
+    require memory("synfide-onboarding-demo")
+    let s be durable.status_of(wf_name(name))
+    give wf_name(name) + " → next: " + text(s["next"]) + ". " + text(s["display"])
+
+let TOOLS be {"start_onboarding": tool_start_onboarding, "check_onboarding": tool_check_onboarding}
+let CATALOG be [
+    {"name": "start_onboarding", "describe": "Start an onboarding workflow for a person. Requires human approval in the inbox.", "params": ["name"]},
+    {"name": "check_onboarding", "describe": "Check how a person's onboarding is going.", "params": ["name"]}
+]
+
+task chat_agent(message, history)
+    give agent.respond(message, TOOLS, CATALOG, history, 4)
+
 -- The re-entry heartbeat: every parked onboarding advances by itself as soon
 -- as its approval lands — no second POST needed.
 task heartbeat()
@@ -54,6 +79,12 @@ task heartbeat()
 cron_every(15, heartbeat)
 
 serve on 8080
+    route "GET /chat"
+        give html(ui.chat_page())
+
+    route "GET /chat/send"
+        give ui.chat_send_with(query.message, chat_agent)
+
     route "POST /onboarding/:employee/start"
         log "onboarding run: " + params.employee
         give durable.run(wf_name(params.employee), wf_steps(), {"employee": params.employee})

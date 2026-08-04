@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.3",
+  "version": "v0.3.4",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -49,7 +49,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "eee938a60e41e7a3b94a08e61a3828dd9dd5a08b04318bfdacd9a18a07254602"
+      "sha256": "46c2f5dd5f5d537f5ebb278f1dc45c9456db505227786b92cd8f550149a44ba1"
     },
     {
       "src": "scaffold/console.syn",

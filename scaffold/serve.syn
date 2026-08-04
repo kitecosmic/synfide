@@ -1,22 +1,21 @@
--- Your Synfide SERVER: chat + approval inbox + a durable demo workflow, all in
--- one process. This is the file the console and the browser talk to.
+-- Your Synfide SERVER — neutral wiring, no domain baked in:
 --
 --   synsema serve serve.syn
 --
---   http://localhost:8080          → home (links to everything)
---   http://localhost:8080/chat     → an AGENT chat: it can DO things. Try
---                                    "onboard ana" — it starts a durable
---                                    workflow that parks in your inbox; approve
---                                    it and the heartbeat finishes the job.
+--   http://localhost:8080          → home
+--   http://localhost:8080/chat     → an AGENT chat: ask it to do ANYTHING
+--                                    ("prepare the monthly report", "renew the
+--                                    certs", …). It PROPOSES the action, which
+--                                    parks in your approval inbox; once a human
+--                                    approves, execute_action() runs it.
 --   http://localhost:8080/inbox/ui → the approval inbox (works on a phone)
 --
---   # start a demo workflow that parks on a human approval:
---   curl -X POST localhost:8080/demo/ana/start
---   # approve it in the browser (or the console) — the heartbeat finishes it.
---
--- It shares state with app.syn (same declared memory), survives restarts, and
--- the operator console (synsema run console.syn) talks to it over this API.
-intent: "Chat + approval inbox + durable demo workflow, served"
+-- The framework part is generic (synfide/ packages). YOUR app is this file:
+-- everything between the ══ REPLACE ME ══ markers is a placeholder for your
+-- domain — your tools, your executor, your routes. Opinionated, ready-to-run
+-- demos live in the repo's examples/, not here:
+--   https://github.com/kitecosmic/synfide
+intent: "Agent chat + approval inbox + durable actions — wire your domain here"
 
 require memory("my-synfide-app")
 require serve(8080)
@@ -24,65 +23,71 @@ require stdout
 require time
 require llm
 
+use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
 
-task prepare(ctx)
-    give "prepared " + ctx["name"]
+-- ══════════════════ REPLACE ME: your executor ══════════════════
+-- This runs AFTER a human approves an action. Put your real code here: call
+-- your API (require net(...) in this task), send the email, move the money
+-- (synfide/treasury.syn), restart the service. Until you do, it only records
+-- that it would have run.
+task execute_action(ctx)
+    give "executed: \"" + ctx["title"] + "\" — (placeholder: put YOUR real code in execute_action(), serve.syn)"
 
-task approval(ctx)
-    give approvals.gate("demo-" + ctx["name"], "Approve demo for " + ctx["name"] + "?")
+task gate_action(ctx)
+    give approvals.gate("action-" + ctx["id"], ctx["title"])
 
-task activate(ctx)
-    give "activated " + ctx["name"]
-
-task wf_steps()
+task action_steps()
     give [
-        {"name": "prepare", "run": prepare},
-        {"name": "approval", "run": approval},
-        {"name": "activate", "run": activate}
+        {"name": "approval", "run": gate_action},
+        {"name": "execute", "run": execute_action}
     ]
 
+-- ══════════════════ REPLACE ME: your tools ══════════════════
+-- The two below are DOMAIN-FREE on purpose: propose_action lets the agent turn
+-- ANY request into an approval-gated durable action; list_actions reports.
+-- Replace or extend them with tools that speak your business.
+
+task tool_propose_action(title)
+    require memory("my-synfide-app")
+    require time
+    let id be text(store.put("action-n", store.get("action-n", 0) + 1))
+    let r be durable.run("action-" + id, action_steps(), {"id": id, "title": title})
+    give "action-" + id + " (\"" + title + "\") is PARKED in the approval inbox (/inbox/ui). It will execute by itself once a human approves — status now: " + r["status"]
+
+task tool_list_actions()
+    require memory("my-synfide-app")
+    let ws be durable.workflows("action-")
+    when length(ws) == 0
+        give "no actions proposed yet"
+    give join(apply(ws, (w) => w["name"] + ": " + w["status"]), " · ")
+
+let TOOLS be {
+    "propose_action": tool_propose_action,
+    "list_actions": tool_list_actions
+}
+let CATALOG be [
+    {"name": "propose_action", "describe": "Queue an action for execution. ALWAYS call this when the user asks you to do, change, fix or run ANYTHING — never refuse for lack of access: this tool IS your access. A human approves it in their inbox and then it executes. `title` = short imperative description of the action.", "params": ["title"]},
+    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []}
+]
+
+-- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
+let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. Answer briefly."
+
+task chat_agent(message, history)
+    give agent.respond(message, TOOLS, CATALOG, INSTRUCTIONS + "\n--- conversation so far ---\n" + history, 4)
+
 task heartbeat()
-    let woken be durable.tick([{"prefix": "demo-", "steps": wf_steps()}])
+    let woken be durable.tick([{"prefix": "action-", "steps": action_steps()}])
     when length(woken) > 0
         log "heartbeat woke: " + json_encode(woken)
 
 cron_every(15, heartbeat)
 
--- ---------- the chat is an AGENT with tools ----------
--- Ask it things like:  "onboard ana"  ·  "how is ana's onboarding going?"
--- The risky tool does NOT act directly: it starts a durable workflow that PARKS
--- in your approval inbox (/inbox/ui). You approve; the heartbeat finishes it.
--- Every dispatch — executed, rejected, failed — lands in the journal.
-
-task tool_start_onboarding(name)
-    require memory("my-synfide-app")
-    require time
-    let r be durable.run("demo-" + name, wf_steps(), {"name": name})
-    when r["status"] == "waiting"
-        give "workflow demo-" + name + " started — WAITING for human approval in the inbox (/inbox/ui). It will finish by itself once approved."
-    give "workflow demo-" + name + ": " + r["status"]
-
-task tool_check_onboarding(name)
-    require memory("my-synfide-app")
-    let s be durable.status_of("demo-" + name)
-    give "demo-" + name + " → next step: " + text(s["next"]) + ". " + text(s["display"])
-
-let TOOLS be {
-    "start_onboarding": tool_start_onboarding,
-    "check_onboarding": tool_check_onboarding
-}
-let CATALOG be [
-    {"name": "start_onboarding", "describe": "Start an onboarding workflow for a person. It REQUIRES human approval: it parks in the approval inbox and completes only after a human approves.", "params": ["name"]},
-    {"name": "check_onboarding", "describe": "Check how a person's onboarding workflow is going (next step and progress).", "params": ["name"]}
-]
-
-task chat_agent(message, history)
-    give agent.respond(message, TOOLS, CATALOG, history, 4)
-
+-- ══════════════════ routes (add your own below) ══════════════════
 serve on 8080
     route "GET /"
         give html(ui.home_page())
@@ -109,12 +114,7 @@ serve on 8080
         let d be approvals.resolve(params.id, b["approved"], b["who"])
         when d == nothing
             give not_found("no such approval: " + params.id)
-        log "decision on " + params.id + " by " + text(b["who"])
         give d
 
-    route "POST /demo/:name/start"
-        log "demo run: " + params.name
-        give durable.run("demo-" + params.name, wf_steps(), {"name": params.name})
-
-    route "GET /demo/:name"
-        give durable.status_of("demo-" + params.name)
+    route "GET /actions"
+        give durable.workflows("action-")
