@@ -72,3 +72,7 @@ Every example file documents its own flow at the top. Use the packages from your
 Under active development. `store` / `durable` / `approvals` are working and tested (above); `treasury`, `cassettes`, `journal` and the `synsema init --synfide` scaffold are next. The quickstart at the top is the contract we are building to — it will work exactly as written at first release, and this README will not say it does until it does.
 
 Downloads will be versioned and checksum-verified; the framework is vendored into your project, so upgrades are always explicit.
+
+## License
+
+[Apache-2.0](LICENSE).
