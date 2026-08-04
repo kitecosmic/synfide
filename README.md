@@ -10,7 +10,7 @@
 # 1. Install Synsema (one self-contained binary — no Python, no npm)
 curl -fsSL https://synsema.com/install.sh | sh
 
-# 2. Download Synfide and scaffold your project into the current folder
+# 2. Download Synfide (version-pinned, sha256-verified) and scaffold your project
 synsema init --synfide
 
 # 3. Configure and run
@@ -70,9 +70,9 @@ Every example file documents its own flow at the top. Use the packages from your
 
 ## Status
 
-Under active development. `store` / `durable` / `approvals` are working and tested (above); `treasury`, `cassettes`, `journal` and the `synsema init --synfide` scaffold are next. The quickstart at the top is the contract we are building to — it will work exactly as written at first release, and this README will not say it does until it does.
+**The quickstart at the top works as written** (Synsema v0.5.3+, Synfide v0.1.0). The install is a framework, not a template: version-pinned to the latest Synfide release, every file verified against the manifest's sha256, `synfide/VERSION` records what you have, and re-running `synsema init --synfide` upgrades the framework files only — yours are never overwritten.
 
-Downloads will be versioned and checksum-verified; the framework is vendored into your project, so upgrades are always explicit.
+Under active development: `store` / `durable` / `approvals` are shipped and tested; `treasury` (audited payment budgets over `spend`), `cassettes` (LLM record/replay) and `journal` are next.
 
 ## License
 
