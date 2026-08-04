@@ -38,19 +38,19 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 |---|---|
 | `durable` | Re-entrant workflows: named steps, persisted progress, resume exactly where a crash or restart left off; a registry of every workflow's status and a `tick()` heartbeat that advances parked workflows by itself |
 | `approvals` | Human-in-the-loop as data: an approval inbox that frees the thread and survives days of waiting, webhooks to any channel |
-| `treasury` | Payment connectors that compose scoped network access with the audited spend ledger; budget policy per agent and per role |
-| `cassettes` | Record/replay of LLM calls — behavioral CI that runs cheap and deterministic |
-| `journal` | An action journal over the tool dispatcher: what the agent did, when, and with which permissions |
+| `treasury` | Money with a seatbelt, PSP- and currency-agnostic: per-scope budgets that cut BEFORE anything is declared, the runtime's audited `spend` ledger + host ceiling underneath, payments under least-privilege `call_tool`, and discrepancy records when a PSP fails after the declare — never a silent mismatch |
+| `cassettes` | Record/replay of LLM calls — behavioral tests (evals) that run cheap, deterministic and fully offline; record with whichever provider is configured, replay with none |
+| `journal` | An ordered action journal over the least-privilege tool dispatcher: executed, rejected (allow-list) and failed — actor, action, timestamp |
 
 Plus scaffolding: conventional project layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
 
 ## Try it today (clone-and-run)
 
-The first three packages — `store`, `durable`, `approvals` — are here and tested. Clone this repo and:
+All six packages — `store`, `durable`, `approvals`, `treasury`, `cassettes`, `journal` — are here and tested. Clone this repo (or just run the quickstart above) and:
 
 ```bash
-# the test suite (10 tests: upsert, re-entry, park/resume, approve/deny, registry, tick):
-SYNSEMA_STATE_DIR=$(mktemp -d) synsema test test_synfide.syn
+# the test suite (17 tests — fresh state + audit dirs keep it deterministic):
+SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
 
 # a durable pipeline you can kill and resume (completed steps are never re-run):
 CRASH=1 synsema run example_pipeline.syn    # dies at "validate"
@@ -72,7 +72,7 @@ Every example file documents its own flow at the top. Use the packages from your
 
 **The quickstart at the top works as written** (Synsema v0.5.3+, Synfide v0.1.0). The install is a framework, not a template: version-pinned to the latest Synfide release, every file verified against the manifest's sha256, `synfide/VERSION` records what you have, and re-running `synsema init --synfide` upgrades the framework files only — yours are never overwritten.
 
-Under active development: `store` / `durable` / `approvals` are shipped and tested; `treasury` (audited payment budgets over `spend`), `cassettes` (LLM record/replay) and `journal` are next.
+All six packages are shipped and tested (synfide v0.2.0). The framework is deliberately **agnostic**: it never names an LLM provider (recording goes through whatever the runtime has configured — hosted or a local GGUF; replay needs none), a currency, or a payment provider. Next: an inbox UI, approval deadlines, and a concurrency lease for parallel `run()` calls on one workflow.
 
 ## License
 
