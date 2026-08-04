@@ -4,6 +4,22 @@
 
 *Syn + fides — trust, engineered.*
 
+## Get running
+
+```bash
+# 1. Install Synsema (one self-contained binary — no Python, no npm)
+curl -fsSL https://synsema.com/install.sh | sh
+
+# 2. Download Synfide and scaffold your project into the current folder
+synsema init --synfide
+
+# 3. Configure and run
+cp .env.example .env     # open it, pick your LLM provider, paste its API key
+synsema run app.syn
+```
+
+That's the whole setup. The generated `.env.example` documents **every** variable on its own line — all supported LLM providers (including fully local GGUF models that need no key at all), the human-approval webhooks, and the host ceilings for money and tokens. Copy it to `.env`, uncomment what you use, done. Nothing is guessed, nothing is hidden.
+
 ## Why
 
 Anyone can demo an AI agent in an afternoon. Shipping one to production is where projects die — and they die from the same fears every time:
@@ -26,16 +42,10 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 | `cassettes` | Record/replay of LLM calls — behavioral CI that runs cheap and deterministic |
 | `journal` | An action journal over the tool dispatcher: what the agent did, when, and with which permissions |
 
-Plus scaffolding: one command to a project with conventional layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
+Plus scaffolding: conventional project layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
 
 ## Status
 
-Early design. The runtime prerequisites (metering, spend ledger, host ceilings) shipped in Synsema; the framework packages are being extracted from working, probed patterns. Nothing here is stable yet.
+Under active development. The runtime guarantees Synfide builds on (metering, spend ledger, host ceilings, deny-by-default) are already in the Synsema engine; the framework packages are being extracted from working, probed patterns. The quickstart above is the contract we are building to — it will work exactly as written at first release, and this README will not say it does until it does.
 
-## Planned install
-
-```bash
-synsema init --synfide
-```
-
-One command, versioned and checksum-verified, vendored into your project with explicit upgrades.
+Downloads are versioned and checksum-verified; the framework is vendored into your project, so upgrades are always explicit.
