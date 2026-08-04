@@ -87,6 +87,20 @@ task heartbeat()
 
 cron_every(15, heartbeat)
 
+-- ══ REPLACE ME: security & per-user budgets (mechanisms ready, policy is YOURS) ══
+-- · Who may approve: add `requires auth` to the /inbox routes (see the server
+--   docs) — or protect an approval so it can be decided from ANY channel with a
+--   one-time code: `let code be approvals.protect(id)` (needs `require random`),
+--   send the code by Telegram/WhatsApp/SMS, resolve with
+--   `approvals.resolve_coded(id, true, who, code)`.
+-- · Per-user token budgets (a customer must not burn 30k tokens insisting):
+--       use "./synfide/limits.syn" as limits
+--       let before be llm_usage()
+--       when not limits.within("user:" + user_id, 30000)
+--           give my_over_budget_reply()   -- deny, hand to a human, queue: YOUR call
+--       …answer…
+--       limits.charge("user:" + user_id, llm_usage() - before)
+
 -- ══════════════════ routes (add your own below) ══════════════════
 serve on 8080
     route "GET /"

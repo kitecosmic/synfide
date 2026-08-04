@@ -1,0 +1,35 @@
+-- Synfide · limits — consumption budgets per ANYTHING: a user, a phone number,
+-- a conversation, a channel. Keys are arbitrary strings; what you meter is up
+-- to you (LLM tokens, messages, requests).
+--
+-- The mechanism is here; the POLICY is yours. When someone hits their budget,
+-- YOU decide what happens — deny, hand off to a human, queue for tomorrow:
+--
+--     let before be llm_usage()
+--     when not limits.within("user:" + phone, 30000)
+--         give my_over_budget_reply()          -- ← your policy, your code
+--     let answer be agent.respond(...)
+--     limits.charge("user:" + phone, llm_usage() - before)
+--
+-- The ENTRY declares `require memory(...)`. This module declares nothing.
+
+use "./store.syn" as store
+
+task key_of(k)
+    give "synfide-lim:" + k
+
+-- spent(key) → total charged so far (0 if never).
+export task spent(key)
+    give store.get(key_of(key), 0)
+
+-- charge(key, n) → the new total.
+export task charge(key, n)
+    give store.put(key_of(key), spent(key) + n)
+
+-- within(key, budget) → true while spent < budget.
+export task within(key, budget)
+    give spent(key) < budget
+
+-- reset(key) → forget the counter (e.g. a daily cron that resets everyone).
+export task reset(key)
+    give store.del(key_of(key))

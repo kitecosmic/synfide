@@ -31,12 +31,46 @@ export task request(id, message)
 export task status(id)
     give store.get(PREFIX + id, nothing)
 
+-- protect(id) → a 6-digit ONE-TIME code for this approval. Send it (or a link
+-- carrying it) through YOUR channel — Telegram, WhatsApp, SMS, email: whoever
+-- presents the code is authorized to decide, once. After protect(), the plain
+-- resolve() refuses: only resolve_coded() with the right code works.
+-- Needs `require random` in the entry (codes must be unpredictable).
+export task protect(id)
+    let a be store.get(PREFIX + id, nothing)
+    when a == nothing
+        raise("approvals: cannot protect unknown approval \"" + id + "\" — request() it first")
+    let code be text(random_int(100000, 999999))
+    set a["code"] to code
+    store.put(PREFIX + id, a)
+    give code
+
+-- resolve_coded(id, approved, who, code) → resolves a PROTECTED approval. The
+-- code is single-use: it burns on success. Wrong/missing code raises.
+export task resolve_coded(id, approved, who, code)
+    let a be store.get(PREFIX + id, nothing)
+    when a == nothing
+        give nothing
+    when not contains(a, "code")
+        raise("approvals: \"" + id + "\" is not protected — use resolve()")
+    when a["code"] == nothing
+        raise("approvals: \"" + id + "\" is not protected (its code was already used) — use resolve()")
+    when a["code"] != code
+        raise("approvals: wrong code for \"" + id + "\"")
+    set a["code"] to nothing
+    store.put(PREFIX + id, a)
+    give resolve(id, approved, who)
+
 -- resolve(id, approved, who) → the updated record, or nothing if unknown id.
--- `approved` is a bool; `who` is recorded for the audit trail.
+-- `approved` is a bool; `who` is recorded for the audit trail. Refuses if the
+-- approval was protect()ed — the code IS the authorization then.
 export task resolve(id, approved, who)
     let a be store.get(PREFIX + id, nothing)
     when a == nothing
         give nothing
+    when contains(a, "code")
+        when a["code"] != nothing
+            raise("approvals: \"" + id + "\" is protected — a one-time code is required (resolve_coded)")
     when approved
         set a["status"] to "approved"
     otherwise

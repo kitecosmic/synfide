@@ -185,7 +185,13 @@ export task resolve(id, approved_text, who_text)
     let who be who_text
     when who == "" or who == nothing
         set who to "web"
-    let d be approvals.resolve(id, approved_text == "yes", who)
+    let d be nothing
+    try
+        set d to approvals.resolve(id, approved_text == "yes", who)
+    recover err
+        -- Protected approval: the one-time code (sent through YOUR channel) is
+        -- the authorization — the plain inbox button politely refuses.
+        give respond(esc(err), "text/plain", 403)
     when d == nothing
         give respond("unknown approval: " + esc(id), "text/plain", 404)
     journal.record(who, "ui-decision", id + " -> " + d["status"])

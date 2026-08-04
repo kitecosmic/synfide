@@ -8,6 +8,7 @@ intent: "Prove store, durable re-entry, approvals, treasury, cassettes and journ
 require memory("synfide-tests")
 require time
 require spend("T_*")
+require random
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
@@ -17,6 +18,7 @@ use "./synfide/cassettes.syn" as cassettes
 use "./synfide/journal.syn" as journal
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
+use "./synfide/limits.syn" as limits
 
 -- ---------- store ----------
 
@@ -292,3 +294,46 @@ test "chat_send_with: the answer comes from YOUR responder"
     ui.chat_send_with("probando al agente", fake_responder)
     let page be ui.chat_page()
     assert(contains(page, "eco: probando al agente"))
+
+-- ---------- limits ----------
+
+test "limits: charge accumulates, within cuts, reset forgets"
+    assert_eq(limits.spent("u:1"), 0)
+    limits.charge("u:1", 12000)
+    assert_eq(limits.charge("u:1", 12000), 24000)
+    assert(limits.within("u:1", 30000))
+    limits.charge("u:1", 12000)
+    assert(not limits.within("u:1", 30000), "36000 >= 30000: corta")
+    assert_eq(limits.spent("u:2"), 0, "las claves no se mezclan")
+    limits.reset("u:1")
+    assert_eq(limits.spent("u:1"), 0)
+
+-- ---------- approvals con codigo (OTP por cualquier canal) ----------
+
+test "approvals: protect exige el codigo correcto, una sola vez"
+    approvals.request("otp-1", "pay the invoice?")
+    let code be approvals.protect("otp-1")
+    assert_eq(length(code), 6)
+    -- el resolve plano se rehusa
+    let m1 be ""
+    try
+        approvals.resolve("otp-1", true, "joel")
+    recover err
+        set m1 to err
+    assert(contains(m1, "one-time code is required"))
+    -- codigo equivocado se rehusa
+    let m2 be ""
+    try
+        approvals.resolve_coded("otp-1", true, "joel", "000000")
+    recover err
+        set m2 to err
+    assert(contains(m2, "wrong code"))
+    -- codigo correcto resuelve y se QUEMA
+    let d be approvals.resolve_coded("otp-1", true, "joel", code)
+    assert_eq(d["status"], "approved")
+    let m3 be ""
+    try
+        approvals.resolve_coded("otp-1", false, "otro", code)
+    recover err
+        set m3 to err
+    assert(contains(m3, "not protected"), "el codigo ya no existe: " + m3)

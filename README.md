@@ -23,6 +23,15 @@ With the server up: **`/chat`** is an **agent** over your configured LLM provide
 
 That's the whole setup. The generated `.env.example` documents **every** variable on its own line — all supported LLM providers (including fully local GGUF models that need no key at all), the human-approval webhooks, and the host ceilings for money and tokens. Copy it to `.env`, uncomment what you use, done. Nothing is guessed, nothing is hidden.
 
+## Building with an AI agent?
+
+Point it at **`synfide/GUIDE.md`** (installed with every project — the complete,
+version-pinned framework reference: every package's exact API, required
+capabilities, canonical wiring, language gotchas). The scaffold also ships an
+`AGENTS.md` that tells coding agents exactly that. For the language underneath,
+the agent should install the Synsema skill and docs MCP (commands in AGENTS.md).
+Nothing about Synfide needs to be guessed or reverse-engineered.
+
 ## Why
 
 Anyone can demo an AI agent in an afternoon. Shipping one to production is where projects die — and they die from the same fears every time:
