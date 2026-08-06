@@ -43,11 +43,13 @@ let FILES be [
     {"src": "synfide/ui/static/synfide.css", "dest": "synfide/ui/static/synfide.css"},
     {"src": "synfide/ui/static/synfide.js", "dest": "synfide/ui/static/synfide.js"},
     {"src": "synfide/GUIDE.md", "dest": "synfide/GUIDE.md"},
+    {"src": "synfide/console.syn", "dest": "synfide/console.syn"},
+    {"src": "synfide/tests.syn", "dest": "synfide/tests.syn"},
+    -- The USER's files — created once, never updated (the boundary rule:
+    -- a file is the framework's or the user's, never both):
     {"src": "scaffold/AGENTS.md", "dest": "AGENTS.md"},
     {"src": "scaffold/app.syn", "dest": "app.syn"},
-    {"src": "scaffold/serve.syn", "dest": "serve.syn"},
-    {"src": "scaffold/console.syn", "dest": "console.syn"},
-    {"src": "test_synfide.syn", "dest": "test_synfide.syn"}
+    {"src": "scaffold/serve.syn", "dest": "serve.syn"}
 ]
 
 let current be json_decode(read_file("manifest.json"))["version"]

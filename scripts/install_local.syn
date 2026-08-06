@@ -9,7 +9,7 @@
 --
 --     synsema run scripts/install_local.syn
 --     cd ../synfide-local-test
---     SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
+--     SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test synfide/tests.syn
 --     synsema serve serve.syn        # click through the admin
 --
 -- A stale hash (file changed, manifest not regenerated) fails loudly — run
@@ -54,4 +54,4 @@ while i < length(files)
 write_file(DEST + "synfide/VERSION", manifest["version"] + "\n")
 
 print("installed " + manifest["version"] + " (" + text(length(files)) + " files) -> " + DEST)
-print("next: cd ../synfide-local-test && synsema test test_synfide.syn && synsema serve serve.syn")
+print("next: cd ../synfide-local-test && synsema test synfide/tests.syn && synsema serve serve.syn")

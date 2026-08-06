@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.6",
+  "version": "v0.3.7",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -49,7 +49,7 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "6af00b148eba8f48b6abebcaa8afa1ad578505cedc77e07ff4fe169db9d874e1"
+      "sha256": "41e93f5c0dcce0baa553781ab4be2bfb0daf0058b2bbee7e82c11b0194e07aae"
     },
     {
       "src": "synfide/agent.syn",
@@ -59,7 +59,7 @@
     {
       "src": "synfide/ui/layouts/base.html",
       "dest": "synfide/ui/layouts/base.html",
-      "sha256": "28655b40e29def9ee0311a7376ff03b26f426c79b70b40b1eda805957f07f4fa"
+      "sha256": "6eaf35d80cfe2de99126f26252aa769d03856045b952f0d147adbd74d915bb00"
     },
     {
       "src": "synfide/ui/layouts/auth.html",
@@ -134,12 +134,22 @@
     {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "1a307d64ede4ad967a7ace6a69c1e40566726f34c2c21d746ab145ca8acc1183"
+      "sha256": "1bbb2b31bc2ea437f96ea0df9a0dfc91d1b1c836bbd6c3d20b9959eda2136952"
+    },
+    {
+      "src": "synfide/console.syn",
+      "dest": "synfide/console.syn",
+      "sha256": "8b18188382add10a8d40188863beefd98dbaa8378304c9c575ac6dc7d122e5f7"
+    },
+    {
+      "src": "synfide/tests.syn",
+      "dest": "synfide/tests.syn",
+      "sha256": "6d65974f4089e9b7783df522c7c6822295f4345b1a13f79e073301f028d5852c"
     },
     {
       "src": "scaffold/AGENTS.md",
       "dest": "AGENTS.md",
-      "sha256": "f60e640d4b56467ab8de2dd7f36948a36aa53295b8392302f699c2438cbd8429"
+      "sha256": "1edec68e050ea8bb25d5c60ff4c806268ec3f8993f2ef2e0e2adc607802efe41"
     },
     {
       "src": "scaffold/app.syn",
@@ -149,17 +159,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "3591d4beca1de827b7c05fc2075c3f57a5705d5c5d566c923a9979f5dd95eb18"
-    },
-    {
-      "src": "scaffold/console.syn",
-      "dest": "console.syn",
-      "sha256": "ea61c4cad12414ec3d7c66daf42898bee4efcc10c88b0baebc0b9eece25c6793"
-    },
-    {
-      "src": "test_synfide.syn",
-      "dest": "test_synfide.syn",
-      "sha256": "fd68c2f47092c44f6e68c3387614e243b83f4dd240b0aabf50168900e5703efd"
+      "sha256": "1789b7cac6c111f9b9fdf45d2feb9af267b7a42ecd11e6d69bb670c44f33b1e1"
     }
   ]
 }

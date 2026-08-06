@@ -9,12 +9,13 @@ This file covers what those do NOT: the framework's packages, contracts and rule
 
 ## The golden rules
 
-1. **Never edit files under `synfide/`** — they are framework-owned and upgrades
-   replace them (an edited one is kept + `.new`, but that's a conflict, not a
-   workflow). Extend by writing YOUR `.syn` files that `use` the packages. To
-   fork a package, copy it to your own folder (e.g. `mylib/`) and import that.
-   The `patches` package enforces this rule in code: a proposed patch can never
-   target `synfide/`.
+1. **A file is the framework's or the user's, never both.** Framework files
+   live under `synfide/` (including `synfide/console.syn` and
+   `synfide/tests.syn`) and update freely on upgrade — never edit them; to
+   change one, copy it to your folder (e.g. `mylib/`) and import yours. User
+   files (`app.syn`, `serve.syn`, `AGENTS.md`, `.env`) are created once and
+   are yours from second zero. The `patches` package enforces the synfide/
+   side in code: a proposed patch can never target `synfide/`.
 2. **Packages never declare top-level capabilities.** The ENTRY file (your
    `serve.syn` / `app.syn`) declares everything: `require memory("name")`,
    `require serve(PORT)`, `require time`, `require llm`, `require net(...)`,
@@ -48,7 +49,7 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   `cron_after(seconds, task)` / `cron_list()` / `cron_cancel(name)` — fixed
   delay between END of one run and start of the next (not wall-clock cron);
   jobs live under `synsema serve` (or `run` while the program stays alive).
-- Run tests with fresh dirs: `SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn`.
+- Run tests with fresh dirs: `SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test synfide/tests.syn`.
 
 ## Packages (exact API)
 
@@ -180,19 +181,23 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   and the CSS/JS in `synfide/ui/static/`. The module only builds data maps.
   The ENTRY must mount the assets in its serve block:
       static "/synfide-ui" from "./synfide/ui/static"
-- Pages (each → HTML text; wrap in `html(...)`): `home_page()` the dashboard
-  (app index + recent actions) · `inbox_page()` approvals with one-click
-  decide · `workflows_page()` · `journal_page()` (last 100) ·
-  `patches_page()` + `patch_page(id)` (fields, verdicts, the diff; 404 map on
-  unknown id) · `env_page(names, editable)` configuration ·
-  `endpoints_page(api_docs)` the curated API in-shell · `chat_page()`.
-  Canonical routes: `/` `/inbox/ui` `/admin/workflows` `/admin/journal`
-  `/admin/patches` `/admin/patches/:id` `/admin/env` (+ POST
-  `/admin/env/code`, `/admin/env/set`) `/admin/endpoints` `/chat`.
-  `/llms.txt` serves the same curated API as plain text for agents — the
-  scaffold overrides the engine's auto-generated route table with its
-  `API_DOCS` list (browser pages don't belong in an agent-facing endpoint
-  list); extend it as you add routes.
+- **The boundary rule made real — THREE routes serve everything.** The user's
+  entry never carries framework wiring: `ui.admin_get(path, request, query,
+  CONFIG)` + `ui.admin_post(path, request, CONFIG)` behind `GET /`,
+  `GET /*path` and `POST /*path` dispatch the WHOLE surface — dashboard,
+  chat, approvals inbox, workflows, patches (+detail), journal, env,
+  endpoints, setup/login/logout, `/llms.txt`, and the JSON API (`/inbox`,
+  `/inbox/:id` — session OR bearer). Route precedence is by specificity, so
+  the user's own routes always win. New framework pages in future releases
+  appear WITHOUT touching the user's entry.
+- CONFIG (all keys optional): `responder` (chat agent task), `env_vars`
+  (extra names), `env_editable` (bool), `api_docs` (endpoint doc strings →
+  endpoints page + llms.txt), `about` (llms.txt title), `open` (bool — DEMO
+  mode, no login; local examples only).
+- Individual pages remain exported for custom wiring (`home_page()`,
+  `inbox_page()`, `workflows_page()`, `journal_page()`, `patches_page()`,
+  `patch_page(id)`, `env_page(names, editable)`, `endpoints_page(api_docs)`,
+  `chat_page()` — each → HTML text, wrap in `html(...)`).
 - **Environment, write-only:** `env_page(names, editable)` shows each
   variable as set / not set — probed via SEALED `secret()`, values never
   enter program space and are NEVER displayed. With `editable`, a value can

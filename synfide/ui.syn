@@ -559,6 +559,178 @@ export task chat_page()
     set d["has_msgs"] to length(es) > 0
     give body of render("synfide/ui/pages/chat.html", d)
 
+-- ---------- the admin dispatcher: the WHOLE framework surface, framework-owned ----------
+-- The boundary fix (DESIGN-frontera-framework-usuario): the user's entry stops
+-- carrying framework wiring. THREE routes serve everything — present and
+-- future — so a framework release never needs to touch the user's file again:
+--
+--     route "GET /"           give ui.admin_get("", request, query, CONFIG)
+--     route "GET /*path"      give ui.admin_get(params.path, request, query, CONFIG)
+--     route "POST /*path"     give ui.admin_post(params.path, request, CONFIG)
+--
+-- Route precedence is by SPECIFICITY, so the user's own routes always win over
+-- the catch-alls. Unknown paths → 404 here, like any server.
+--
+-- CONFIG is the user's policy, all keys optional:
+--   "responder"    task(message, history) → the chat agent (absent → plain LLM chat)
+--   "env_vars"     extra variable names for /admin/env (unioned with the rest)
+--   "env_editable" bool — enable the write-only .env editor (needs random + file("./.env"))
+--   "api_docs"     list of endpoint doc strings (endpoints page + /llms.txt)
+--   "about"        one line describing the app (llms.txt title)
+--   "open"         bool — DEMO MODE: no login, everything public. For local
+--                  examples only; never ship an app with it.
+
+-- Variables the framework knows about at THIS release — framework-owned, so it
+-- updates with the framework instead of rotting in the user's entry.
+let KNOWN_VARS be ["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MINIMAX_API_KEY", "DEEPSEEK_API_KEY", "SYNSEMA_LLM_MODEL", "SYNSEMA_LLM_MAX_TOKENS", "SYNSEMA_LLM_TIMEOUT", "SYNSEMA_LLM_HTTP_STREAM", "SYNSEMA_LLM_BASE_URL", "SYNSEMA_LLM_BUDGET", "SYNSEMA_SPEND_CEILING", "SYNSEMA_SPEND_CEILING_PER_IDENTITY", "SYNSEMA_SIGN_CEILING", "SYNSEMA_HUMAN_TIMEOUT", "SYNSEMA_HUMAN_WEBHOOK", "SYNSEMA_HUMAN_WEBHOOK_SECRET", "SYNSEMA_HUMAN_PUBLIC_URL", "JWT_KEY", "CAPTOKEN_ROOT_KEY", "AGENT_SIGNING_KEY", "SYNFIDE_ADMIN_TOKEN"]
+
+task cfg_get(cfg, key, fallback)
+    when cfg == nothing
+        give fallback
+    when contains(cfg, key)
+        give cfg[key]
+    give fallback
+
+-- The /admin/env list = UNION of ./.env.example (primary, dynamic), the names
+-- known at this release (floor for stale examples), and the entry's extras.
+export task env_vars_all(extra)
+    let names be env_names_from_example("./.env.example")
+    each kv in KNOWN_VARS
+        when not contains(names, kv)
+            set names to names + [kv]
+    each xv in extra
+        when not contains(names, xv)
+            set names to names + [xv]
+    give names
+
+-- llms_txt(cfg) → the curated, usable API as plain text for agents (browser
+-- pages deliberately not listed).
+export task llms_txt(cfg)
+    let t be "# " + text(cfg_get(cfg, "about", "Synfide app")) + "\n\n"
+    set t to t + "> The human surfaces (/, /chat, /inbox/ui, /admin/*) are browser pages — not listed here.\n\n"
+    let docs be cfg_get(cfg, "api_docs", [])
+    when length(docs) == 0
+        set t to t + "## API\n(none documented yet — fill CONFIG.api_docs in the entry)\n"
+    otherwise
+        set t to t + "## API\n- " + join(docs, "\n- ") + "\n"
+    give respond(t, "text/plain")
+
+-- Bearer from the Authorization header ("Bearer x" → "x"), or nothing.
+task bearer_token(request)
+    when not contains(request, "headers")
+        give nothing
+    let hs be request["headers"]
+    when not contains(hs, "authorization")
+        give nothing
+    let h be text(hs["authorization"])
+    when starts_with(h, "Bearer ")
+        give slice(h, 7, length(h))
+    when starts_with(h, "bearer ")
+        give slice(h, 7, length(h))
+    give nothing
+
+-- api_or_session_guard(request) → nothing when the caller is a signed-in
+-- human OR presents the admin bearer; else the 401 to give.
+task api_or_session_guard(request)
+    let u be authenticate(bearer_token(request), request)
+    when u == nothing
+        give respond("sign in, or present Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>", "text/plain", 401)
+    give nothing
+
+-- admin_get(path, request, query, cfg) → the full GET surface.
+export task admin_get(path, request, query, cfg)
+    let p be text(path)
+    let open be cfg_get(cfg, "open", false)
+    -- reachable without a session
+    when p == "setup"
+        when open
+            give redirect("/")
+        when users_exist()
+            give redirect("/login")
+        give html(setup_page())
+    when p == "login"
+        when open
+            give redirect("/")
+        give html(login_page())
+    when p == "logout"
+        when open
+            give redirect("/")
+        give logout(request)
+    when p == "llms.txt"
+        give llms_txt(cfg)
+    -- JSON API: session OR bearer
+    when p == "inbox"
+        when not open
+            let ga be api_or_session_guard(request)
+            when ga != nothing
+                give ga
+        give approvals.pending()
+    -- browser pages: session required
+    when not open
+        let g be guard(request)
+        when g != nothing
+            give g
+    when p == ""
+        give html(home_page())
+    when p == "chat"
+        give html(chat_page())
+    when p == "chat/send"
+        let responder be cfg_get(cfg, "responder", nothing)
+        when responder == nothing
+            give chat_send(query.message)
+        give chat_send_with(query.message, responder)
+    when p == "inbox/ui"
+        give html(inbox_page())
+    when p == "admin/workflows"
+        give html(workflows_page())
+    when p == "admin/journal"
+        give html(journal_page())
+    when p == "admin/patches"
+        give html(patches_page())
+    when starts_with(p, "admin/patches/")
+        give html(patch_page(slice(p, 14, length(p))))
+    when p == "admin/env"
+        give html(env_page(env_vars_all(cfg_get(cfg, "env_vars", [])), cfg_get(cfg, "env_editable", false)))
+    when p == "admin/endpoints"
+        give html(endpoints_page(cfg_get(cfg, "api_docs", [])))
+    give not_found("no such page: " + esc(p))
+
+-- admin_post(path, request, cfg) → the full POST surface.
+export task admin_post(path, request, cfg)
+    let p be text(path)
+    let open be cfg_get(cfg, "open", false)
+    when p == "setup/submit"
+        give setup_submit(request.json)
+    when p == "login/submit"
+        give login_submit(request.json)
+    -- JSON API: session OR bearer (scripts, bots, other services)
+    when starts_with(p, "inbox/")
+        when p != "inbox/ui/decide"
+            when not open
+                let ga be api_or_session_guard(request)
+                when ga != nothing
+                    give ga
+            let b be request.json
+            when b == nothing
+                give respond("body must be JSON: {\"approved\": true|false, \"who\": \"name\"}", "text/plain", 400)
+            let id be slice(p, 6, length(p))
+            let d be approvals.resolve(id, b["approved"] == true, text(b["who"]))
+            when d == nothing
+                give not_found("no such approval: " + esc(id))
+            give d
+    -- browser JSON: session required
+    when not open
+        let g be guard_api(request)
+        when g != nothing
+            give g
+    when p == "inbox/ui/decide"
+        give resolve_json(request.json)
+    when p == "admin/env/code"
+        give env_code_request()
+    when p == "admin/env/set"
+        give env_set(request.json, env_vars_all(cfg_get(cfg, "env_vars", [])))
+    give not_found("no such action: " + esc(p))
+
 -- ---------- decisions ----------
 
 -- resolve_json(body) → records a decision arriving as JSON ({id, approved,

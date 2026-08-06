@@ -1,7 +1,7 @@
 -- Synfide test suite. Run with FRESH state and audit dirs so tests are
 -- deterministic and never touch your real audit logs:
 --
---   SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
+--   SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test synfide/tests.syn
 --
 intent: "Prove store, durable re-entry, approvals, treasury, cassettes, journal and patches"
 
@@ -11,17 +11,18 @@ require spend("T_*")
 require random
 require secret
 require file("./.tmp-tests/*")
+require file.read("./.env.example")
 
-use "./synfide/store.syn" as store
-use "./synfide/durable.syn" as durable
-use "./synfide/approvals.syn" as approvals
-use "./synfide/treasury.syn" as treasury
-use "./synfide/cassettes.syn" as cassettes
-use "./synfide/journal.syn" as journal
-use "./synfide/ui.syn" as ui
-use "./synfide/agent.syn" as agent
-use "./synfide/limits.syn" as limits
-use "./synfide/patches.syn" as patches
+use "./store.syn" as store
+use "./durable.syn" as durable
+use "./approvals.syn" as approvals
+use "./treasury.syn" as treasury
+use "./cassettes.syn" as cassettes
+use "./journal.syn" as journal
+use "./ui.syn" as ui
+use "./agent.syn" as agent
+use "./limits.syn" as limits
+use "./patches.syn" as patches
 
 -- ---------- store ----------
 
@@ -562,6 +563,38 @@ test "inbox: resolve_json decide, journalea y rechaza cuerpos invalidos"
     let r be ui.resolve_json({"id": "json-1", "approved": true, "who": "joel"})
     assert_eq(r["ok"], true)
     assert_eq(approvals.status("json-1")["status"], "approved")
+
+-- ---------- el dispatcher: la superficie completa en 3 rutas ----------
+
+test "dispatcher: sirve todo por catch-all, guardia sin sesion, 404 en lo desconocido"
+    let u be ui.login_check("joel", "supersegura1")
+    let sid be ui.session_start(u)
+    let req be {"cookies": {"sid": sid}, "headers": {}}
+    let q be {"message": ""}
+    assert(contains(body of ui.admin_get("", req, q, nothing), "Recent actions"), "home")
+    assert(contains(body of ui.admin_get("admin/journal", req, q, nothing), "Journal"), "journal")
+    assert(contains(body of ui.admin_get("admin/env", req, q, nothing), "SYNFIDE_ADMIN_TOKEN"), "env con union de variables")
+    assert_eq(status of ui.admin_get("no-existe", req, q, nothing), 404)
+    let anon be {"cookies": {}, "headers": {}}
+    let r be ui.admin_get("chat", anon, q, nothing)
+    assert(status of r >= 300, "sin sesion -> redirect al login")
+    assert(contains(body of ui.admin_get("llms.txt", anon, q, nothing), "API"), "llms.txt es publico")
+
+test "dispatcher: modo open (demos) no exige sesion; el API respeta el guard"
+    let anon be {"cookies": {}, "headers": {}}
+    let q be {"message": ""}
+    let cfg be {"open": true}
+    assert(contains(body of ui.admin_get("admin/workflows", anon, q, cfg), "Workflows"), "open: paginas sin login")
+    -- API inbox: cerrado -> 401; open -> pasa
+    assert_eq(status of ui.admin_get("inbox", anon, q, nothing), 401)
+    let pend be ui.admin_get("inbox", anon, q, cfg)
+    assert(pend != nothing, "open: inbox JSON responde")
+    -- decidir por API en open mode
+    approvals.request("disp-1", "dispatch me")
+    let anon_post be {"cookies": {}, "headers": {}, "json": {"approved": true, "who": "disp"}}
+    let d be ui.admin_post("inbox/disp-1", anon_post, cfg)
+    assert_eq(d["status"], "approved")
+    assert_eq(status of ui.admin_post("inbox/no-existe", anon_post, cfg), 404)
 
 -- ---------- approvals con codigo (OTP por cualquier canal) ----------
 

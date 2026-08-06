@@ -19,7 +19,7 @@ synsema run app.syn        # your first durable workflow, in the terminal
 synsema serve serve.syn    # …and your server: http://localhost:8080
 ```
 
-With the server up, **the whole app is an admin** (laid out like Django's): a dashboard with live counts and recent actions, **`/chat`** — an **agent** over your configured LLM provider that can *do* things ("onboard ana"): risky tools don't act directly, they park in **`/inbox/ui`**, the one-click approval inbox (works on a phone), and finish by themselves once you approve — plus workflows, the patch changelist with per-diff detail, the journal, `/admin/env` (config presence — values sealed, never shown), and `/llms.txt`, the auto-generated endpoint list. `synsema run console.syn` is the same inbox from a terminal.
+With the server up, **the whole app is an admin** (laid out like Django's): a dashboard with live counts and recent actions, **`/chat`** — an **agent** over your configured LLM provider that can *do* things ("onboard ana"): risky tools don't act directly, they park in **`/inbox/ui`**, the one-click approval inbox (works on a phone), and finish by themselves once you approve — plus workflows, the patch changelist with per-diff detail, the journal, `/admin/env` (config presence — values sealed, never shown), and `/llms.txt`, the auto-generated endpoint list. `synsema run synfide/console.syn` is the same inbox from a terminal.
 
 **The first visit is a first-run wizard** (engine v0.5.6+): no accounts exist → `/setup` asks for a username, the password twice, **and a setup code printed only on the server's terminal** — so even on an open network bind, nobody who can't see your console can win the first-run race. That account is the **superadmin** (argon2id-hashed, never stored raw) and you're signed in. After that it's `/login` — a real session in an HttpOnly, SameSite=Lax cookie; every admin page is behind it. Scripts and bots use `Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>` on the API routes (constant-time check against a sealed secret). Configuration edits on `/admin/env` are **write-only** (password field, value never readable back), each save gated by another console code. `synsema serve serve.syn` is all you need locally; for remote access use TLS (the engine's `tls auto` or your proxy — the Secure session cookie travels only over HTTPS or localhost). And any single approval can demand a one-time code sent through your own channel.
 
@@ -59,7 +59,7 @@ Synsema, the language underneath, already enforces what libraries elsewhere can 
 | `docs` | The agent's Synsema knowledge: LLMs don't know the language yet, so the official docs MCP (docs.synsema.com — the same server coding agents use) is wired in as plain tasks: search the docs, read a page, and **prove a `.syn` snippet in the official sandbox** before proposing it as a patch. The scaffold gives these to the default agent out of the box |
 | `limits` | Per-user (per-anything) consumption budgets: meter the llm tokens of each interaction, branch on `within(key, budget)` BEFORE answering — deny, queue or hand to a human, your policy |
 | `patches` | **Self-modification with a seatbelt**: an agent proposes an exact change to YOUR files — or the creation of a new one (a new `index.html`, `pages/presupuestos.html`, `whatsapp.syn`: however your app grows) — an independent auditor (a second model call, adversarial by instruction — or your own rules) must approve it, an optional human gate parks it in the inbox, apply is atomic, journaled, and a create never overwrites. `synfide/` itself is hard-refused — a self-improving agent can never rewrite the framework that audits it |
-| `ui` | **An admin, the way Django's admin taught everyone to read one**: branding band, breadcrumbs, section sidebar with a pending badge, captioned modules — a dashboard (app index + recent actions), the one-click approvals inbox, workflows, the patches changelist with per-patch diff detail, the journal, and an agent chat. Built the Synsema way: real `render()` templates (`synfide/ui/pages/…`, auto-escaped holes, one shared layout) + real static CSS/JS, light/dark, phone-ready, a live status strip on every page. Restyle by copying the templates into your folder — `render()` is a language builtin, the framework adds nothing in between. Plus `console.syn`: the same operations from a terminal |
+| `ui` | **An admin, the way Django's admin taught everyone to read one**: branding band, breadcrumbs, section sidebar with a pending badge, captioned modules — a dashboard (app index + recent actions), the one-click approvals inbox, workflows, the patches changelist with per-patch diff detail, the journal, and an agent chat. Built the Synsema way: real `render()` templates (`synfide/ui/pages/…`, auto-escaped holes, one shared layout) + real static CSS/JS, light/dark, phone-ready, a live status strip on every page. Restyle by copying the templates into your folder — `render()` is a language builtin, the framework adds nothing in between. Plus `synfide/console.syn`: the same operations from a terminal |
 
 Plus scaffolding: conventional project layout, per-environment capability profiles, and a generated UI (chat, dashboard, approval inbox).
 
@@ -69,7 +69,7 @@ All ten packages — `store`, `durable`, `approvals`, `treasury`, `cassettes`, `
 
 ```bash
 # the test suite (34 tests — fresh state + audit dirs keep it deterministic):
-SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
+SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test synfide/tests.syn
 
 # a durable pipeline you can kill and resume (completed steps are never re-run):
 CRASH=1 synsema run example_pipeline.syn    # dies at "validate"
@@ -83,7 +83,7 @@ curl -X POST localhost:8080/onboarding/ana/start          # → parks at "approv
 # now open http://localhost:8080/inbox/ui in ANY browser (phone included):
 # approve with one click — the heartbeat finishes the workflow by itself.
 # Prefer the terminal? The operator console does the same over the app's API:
-synsema run console.syn                                   # l · a <id> · d <id> · g <path>
+synsema run synfide/console.syn                                   # l · a <id> · d <id> · g <path>
 
 # NEW — the agent that improves ITSELF while it works (needs an LLM key in .env):
 synsema serve example_evolve.syn
@@ -116,7 +116,7 @@ synsema run scripts/install_local.syn
 
 # 3. prove the installed layout, exactly as a user would:
 cd ../synfide-local-test
-SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
+SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test synfide/tests.syn
 synsema serve serve.syn                       # click through the admin
 ```
 

@@ -1,8 +1,9 @@
 -- Synfide · console — the operator's terminal, talking to your running app over
 -- its own HTTP API (never poking the state files behind the server's back).
+-- Framework-owned (lives in synfide/, updates with the framework).
 --
---   synsema serve app-or-example.syn        # in one terminal
---   synsema run console.syn                 # in another
+--   synsema serve serve.syn                 # in one terminal
+--   synsema run synfide/console.syn         # in another
 --
 -- Commands:
 --   l              list pending approvals

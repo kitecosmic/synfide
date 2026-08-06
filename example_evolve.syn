@@ -101,17 +101,15 @@ task evolve_tick()
 
 cron_every(EVOLVE_EVERY, evolve_tick)
 
+let DEMO_CONFIG be {
+    "open": true,
+    "responder": chat_agent,
+    "about": "Synfide demo — a chat agent that patches its own instructions under audit",
+    "api_docs": ["GET /chat/send?message=... — talk to the self-improving agent.\n  curl -L 'localhost:8080/chat/send?message=hello'", "GET /brain — the CURRENT standing instructions (the live file).\n  curl localhost:8080/brain", "GET /patches — every self-modification proposal and its verdict.\n  curl localhost:8080/patches"]
+}
+
 serve on 8080
     static "/synfide-ui" from "./synfide/ui/static"
-
-    route "GET /"
-        give html(ui.home_page())
-
-    route "GET /chat"
-        give html(ui.chat_page())
-
-    route "GET /chat/send"
-        give ui.chat_send_with(query.message, chat_agent)
 
     route "GET /brain"
         give respond(read_file(BRAIN), "text/plain")
@@ -119,30 +117,12 @@ serve on 8080
     route "GET /patches"
         give patches.proposals()
 
-    route "GET /inbox/ui"
-        give html(ui.inbox_page())
+    -- the framework surface (admin, chat, inbox, api) via the dispatcher
+    route "GET /"
+        give ui.admin_get("", request, query, DEMO_CONFIG)
 
-    route "POST /inbox/ui/decide"
-        give ui.resolve_json(json of request)
+    route "GET /*path"
+        give ui.admin_get(params.path, request, query, DEMO_CONFIG)
 
-    -- examples are open local demos (no login); the sidebar's Sign out just goes home
-    route "GET /logout"
-        give redirect("/")
-
-    route "GET /admin/workflows"
-        give html(ui.workflows_page())
-
-    route "GET /admin/journal"
-        give html(ui.journal_page())
-
-    route "GET /admin/patches"
-        give html(ui.patches_page())
-
-    route "GET /admin/patches/:id"
-        give html(ui.patch_page(params.id))
-
-    route "GET /admin/env"
-        give html(ui.env_page(["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SYNSEMA_LLM_BUDGET"], false))
-
-    route "GET /admin/endpoints"
-        give html(ui.endpoints_page(["GET /chat/send?message=... — talk to the self-improving agent.\n  curl -L 'localhost:8080/chat/send?message=hello'", "GET /brain — the CURRENT standing instructions (the live file).\n  curl localhost:8080/brain", "GET /patches — every self-modification proposal and its verdict.\n  curl localhost:8080/patches"]))
+    route "POST /*path"
+        give ui.admin_post(params.path, request, DEMO_CONFIG)

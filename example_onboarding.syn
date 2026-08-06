@@ -79,14 +79,15 @@ task heartbeat()
 
 cron_every(15, heartbeat)
 
+let DEMO_CONFIG be {
+    "open": true,
+    "responder": chat_agent,
+    "about": "Synfide demo — onboarding with a human approval in the middle",
+    "api_docs": ["POST /onboarding/:employee/start — start (or advance) an onboarding.\n  curl -X POST localhost:8080/onboarding/ana/start", "GET /onboarding/:employee — where it stands.\n  curl localhost:8080/onboarding/ana", "GET /inbox — approvals waiting for a human.\n  curl localhost:8080/inbox", "POST /inbox/:id — decide one.\n  curl -X POST localhost:8080/inbox/onboarding-ana -H 'Content-Type: application/json' -d '{\"approved\":true,\"who\":\"joel\"}'"]
+}
+
 serve on 8080
     static "/synfide-ui" from "./synfide/ui/static"
-
-    route "GET /chat"
-        give html(ui.chat_page())
-
-    route "GET /chat/send"
-        give ui.chat_send_with(query.message, chat_agent)
 
     route "POST /onboarding/:employee/start"
         log "onboarding run: " + params.employee
@@ -95,48 +96,12 @@ serve on 8080
     route "GET /onboarding/:employee"
         give durable.status_of(wf_name(params.employee))
 
-    route "GET /inbox"
-        give approvals.pending()
-
-    -- The human surface: open http://localhost:8080/inbox/ui in ANY browser
-    -- (phone included) — approve/deny with one click, auto-refreshes.
-    route "GET /inbox/ui"
-        give html(ui.inbox_page())
-
-    route "POST /inbox/ui/decide"
-        give ui.resolve_json(json of request)
-
-    -- examples are open local demos (no login); the sidebar's Sign out just goes home
-    route "GET /logout"
-        give redirect("/")
-
+    -- the framework surface (admin, chat, inbox, api) via the dispatcher
     route "GET /"
-        give html(ui.home_page())
+        give ui.admin_get("", request, query, DEMO_CONFIG)
 
-    route "GET /admin/workflows"
-        give html(ui.workflows_page())
+    route "GET /*path"
+        give ui.admin_get(params.path, request, query, DEMO_CONFIG)
 
-    route "GET /admin/journal"
-        give html(ui.journal_page())
-
-    route "GET /admin/patches"
-        give html(ui.patches_page())
-
-    route "GET /admin/patches/:id"
-        give html(ui.patch_page(params.id))
-
-    route "GET /admin/env"
-        give html(ui.env_page(["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"], false))
-
-    route "GET /admin/endpoints"
-        give html(ui.endpoints_page(["POST /onboarding/:employee/start — start (or advance) an onboarding.\n  curl -X POST localhost:8080/onboarding/ana/start", "GET /onboarding/:employee — where it stands.\n  curl localhost:8080/onboarding/ana", "GET /inbox — approvals waiting for a human.\n  curl localhost:8080/inbox", "POST /inbox/:id — decide one.\n  curl -X POST localhost:8080/inbox/onboarding-ana -d '{\"approved\":true,\"who\":\"joel\"}'"]))
-
-    route "POST /inbox/:id"
-        let b be json of request
-        when b == nothing
-            give fail("body must be JSON: {\"approved\": true|false, \"who\": \"name\"}")
-        let d be approvals.resolve(params.id, b["approved"], b["who"])
-        when d == nothing
-            give not_found("no such approval: " + params.id)
-        log "decision on " + params.id + " by " + text(b["who"])
-        give d
+    route "POST /*path"
+        give ui.admin_post(params.path, request, DEMO_CONFIG)
