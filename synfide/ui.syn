@@ -375,19 +375,30 @@ export task logout(request)
 -- The probe is SEALED: secret(name) never lets the value into program space —
 -- present/absent is all this page can ever know, let alone show. A denied
 -- capability reads as its own state so a missing `require secret` in the
--- entry can't masquerade as "not set".
+-- entry can't masquerade as "not set". THIRD state: the process env is frozen
+-- at startup, so a value just saved to .env probes as absent until the server
+-- restarts — without this state a successful save LOOKS like a failure.
 task env_view(name)
     let state be "set"
     let cls be "st-done"
+    let loaded be true
     try
         secret(name)
     recover err
+        set loaded to false
         when contains(text(err), "apability")
             set state to "no access — add `require secret` to the entry"
             set cls to "st-waiting"
         otherwise
             set state to "not set"
             set cls to "st-failed"
+    when loaded
+        -- it made it into the process: the pending marker (if any) is done
+        store.del("synfide-env-saved:" + name)
+    otherwise
+        when store.get("synfide-env-saved:" + name, nothing) != nothing
+            set state to "saved to .env — restart the server to load it"
+            set cls to "st-waiting"
     give {"name": name, "state": state, "cls": cls}
 
 -- env_names_from_example(path) → every variable name documented in the given
@@ -430,6 +441,11 @@ export task env_page(names, editable)
     set d["has_vars"] to length(names) > 0
     set d["editable"] to editable
     set d["names"] to names
+    -- env_view just cleared the markers of anything already loaded — what
+    -- remains is genuinely waiting for a restart
+    let pending be length(store.list("synfide-env-saved:"))
+    set d["has_pending"] to pending > 0
+    set d["pending_n"] to pending
     give body of render("synfide/ui/pages/env.html", d)
 
 -- env_code_request() → mints a one-time, short-lived code and prints it ONLY
@@ -492,6 +508,9 @@ export task env_set(body, allowed)
         set out to out + [name + "=" + value]
     write_file("./.env", join(out, "\n") + "\n")
     journal.record("env-editor", "env-set", name + " (value sealed — written to .env)")
+    -- the page shows this var as "saved — restart to load" until the process
+    -- actually sees it (env_view clears the marker then)
+    store.put("synfide-env-saved:" + name, {"at": now()})
     give {"ok": true, "name": name, "note": "saved to .env — restart the server to apply"}
 
 -- ---------- endpoints ----------

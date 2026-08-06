@@ -284,6 +284,19 @@ test "ui admin: workflows, journal y patches renderizan sus colecciones escapada
     assert(not contains(dp, "<script>alert(2)"))
     assert_eq(status of ui.patch_page("no-existe"), 404)
 
+test "ui env: una var guardada pero no cargada se muestra 'restart', y el marcador se limpia al cargarse"
+    -- guardada en .env pero el proceso no la tiene -> tercer estado + banner
+    store.put("synfide-env-saved:VAR_GUARDADA_PERO_NO_CARGADA", {"at": now()})
+    let page be ui.env_page(["VAR_GUARDADA_PERO_NO_CARGADA"], false)
+    assert(contains(page, "restart the server to load it"), "tercer estado, no un 'not set' enganoso")
+    assert(contains(page, "not loaded yet"), "banner de reinicio pendiente")
+    -- una var que SI esta en el entorno del proceso limpia su marcador
+    store.put("synfide-env-saved:SYNSEMA_STATE_DIR", {"at": now()})
+    let page2 be ui.env_page(["SYNSEMA_STATE_DIR"], false)
+    assert(contains(page2, "st-done"), "cargada -> set")
+    assert_eq(store.get("synfide-env-saved:SYNSEMA_STATE_DIR", nothing), nothing, "marcador limpiado")
+    store.del("synfide-env-saved:VAR_GUARDADA_PERO_NO_CARGADA")
+
 test "ui env: presencia sin valores — una var ausente es not set, nada se muestra"
     let page be ui.env_page(["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"], false)
     assert(contains(page, "SYNFIDE_TEST_VAR_QUE_NO_EXISTE"))
