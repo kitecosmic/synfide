@@ -256,6 +256,13 @@ export task session_end(sid)
         store.del("synfide-sess:" + text(sid))
     give nothing
 
+-- 303 See Other — NEVER the engine's redirect() (301 Moved Permanently) for
+-- anything session-dependent: browsers cache a 301 and replay it forever, so
+-- one visit to a guarded page while signed out would poison that URL with a
+-- permanent hop to /login. Auth-dependent redirects must be temporary.
+task go(path)
+    give with_header(respond("", "text/plain", 303), "Location", path)
+
 -- Missing-key access raises in Synsema — read the session cookie defensively.
 task cookie_sid(request)
     when not contains(request, "cookies")
@@ -284,9 +291,9 @@ export task authenticate(token, request)
 -- of every page route.
 export task guard(request)
     when not users_exist()
-        give redirect("/setup")
+        give go("/setup")
     when session_user(cookie_sid(request)) == nothing
-        give redirect("/login")
+        give go("/login")
     give nothing
 
 -- guard_api(request) → same check for fetch/JSON routes: nothing, or a 401.
@@ -361,7 +368,7 @@ export task login_submit(body)
 
 export task logout(request)
     session_end(cookie_sid(request))
-    give clear_cookie(redirect("/login"), "sid")
+    give clear_cookie(go("/login"), "sid")
 
 -- ---------- environment ----------
 
@@ -528,12 +535,12 @@ task recent_ctx()
 -- context), persists both sides, and redirects back to /chat.
 export task chat_send(message)
     when message == nothing or trim(text(message)) == ""
-        give redirect("/chat")
+        give go("/chat")
     let msg be trim(text(message))
     chat_record("user", msg)
     let answer be reason about msg with context = recent_ctx()
     chat_record("assistant", text(answer))
-    give redirect("/chat")
+    give go("/chat")
 
 -- chat_send_with(message, responder) → same, but the answer comes from YOUR
 -- responder task — typically an agent with tools (see synfide/agent.syn):
@@ -543,12 +550,12 @@ export task chat_send(message)
 --         give ui.chat_send_with(query.message, my_agent)
 export task chat_send_with(message, responder)
     when message == nothing or trim(text(message)) == ""
-        give redirect("/chat")
+        give go("/chat")
     let msg be trim(text(message))
     chat_record("user", msg)
     let answer be call(responder, {"message": msg, "history": recent_ctx()})
     chat_record("assistant", text(answer))
-    give redirect("/chat")
+    give go("/chat")
 
 -- chat_page() → the chat as HTML text (wrap with html() in your route).
 export task chat_page()
@@ -658,17 +665,17 @@ export task admin_get(path, request, query, cfg)
         give ui_asset(slice(p, 11, length(p)))
     when p == "setup"
         when open
-            give redirect("/")
+            give go("/")
         when users_exist()
-            give redirect("/login")
+            give go("/login")
         give html(setup_page())
     when p == "login"
         when open
-            give redirect("/")
+            give go("/")
         give html(login_page())
     when p == "logout"
         when open
-            give redirect("/")
+            give go("/")
         give logout(request)
     when p == "llms.txt"
         give llms_txt(cfg)
@@ -786,4 +793,4 @@ export task resolve(id, approved_text, who_text)
     when d == nothing
         give respond("unknown approval: " + esc(id), "text/plain", 404)
     journal.record(who, "ui-decision", id + " -> " + d["status"])
-    give redirect("/inbox/ui")
+    give go("/inbox/ui")
