@@ -637,11 +637,25 @@ task api_or_session_guard(request)
         give respond("sign in, or present Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>", "text/plain", 401)
     give nothing
 
+-- The UI's own assets, served BY the dispatcher: a `static` mount can't work
+-- here because the `GET /*path` catch-all matches every path first (declared
+-- routes beat static in the engine). Whitelisted by exact name — no
+-- traversal surface — and public: the login page needs its stylesheet.
+-- The ENTRY declares `require file.read("./synfide/ui/static/*")`.
+task ui_asset(name)
+    when name == "synfide.css"
+        give with_header(respond(read_file("./synfide/ui/static/synfide.css"), "text/css"), "Cache-Control", "max-age=300")
+    when name == "synfide.js"
+        give with_header(respond(read_file("./synfide/ui/static/synfide.js"), "text/javascript"), "Cache-Control", "max-age=300")
+    give not_found("no such asset: " + esc(name))
+
 -- admin_get(path, request, query, cfg) → the full GET surface.
 export task admin_get(path, request, query, cfg)
     let p be text(path)
     let open be cfg_get(cfg, "open", false)
     -- reachable without a session
+    when starts_with(p, "synfide-ui/")
+        give ui_asset(slice(p, 11, length(p)))
     when p == "setup"
         when open
             give redirect("/")

@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.7",
+  "version": "v0.3.8",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -49,7 +49,7 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "41e93f5c0dcce0baa553781ab4be2bfb0daf0058b2bbee7e82c11b0194e07aae"
+      "sha256": "89c99c354976b46e231876792ad95e634b0c2a3919a6827752ede5581e63fce9"
     },
     {
       "src": "synfide/agent.syn",
@@ -134,7 +134,7 @@
     {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "1bbb2b31bc2ea437f96ea0df9a0dfc91d1b1c836bbd6c3d20b9959eda2136952"
+      "sha256": "e937735a6992e6ccd2803b368357bd3b96d62a031ac5a21d368e9cf19360943a"
     },
     {
       "src": "synfide/console.syn",
@@ -144,7 +144,7 @@
     {
       "src": "synfide/tests.syn",
       "dest": "synfide/tests.syn",
-      "sha256": "6d65974f4089e9b7783df522c7c6822295f4345b1a13f79e073301f028d5852c"
+      "sha256": "b7bb5e32c0a878f7f0a20acccec7265e8abf0fa0de1cd63b2bc7512d84c8fd36"
     },
     {
       "src": "scaffold/AGENTS.md",
@@ -159,7 +159,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "1789b7cac6c111f9b9fdf45d2feb9af267b7a42ecd11e6d69bb670c44f33b1e1"
+      "sha256": "30b57942e8f909b85a16e823412c298b9cb213f214c64e6d95cbf1c3ddb6aa77"
     }
   ]
 }

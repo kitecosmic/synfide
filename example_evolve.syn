@@ -38,6 +38,7 @@ require stdout
 require time
 require llm
 require secret
+require file.read("./synfide/ui/static/*")
 require file("./evolve-brain.md")
 
 use "./synfide/store.syn" as store
@@ -109,8 +110,6 @@ let DEMO_CONFIG be {
 }
 
 serve on 8080
-    static "/synfide-ui" from "./synfide/ui/static"
-
     route "GET /brain"
         give respond(read_file(BRAIN), "text/plain")
 

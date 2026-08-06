@@ -179,8 +179,10 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   `render()` templates + static assets. The markup lives in `synfide/ui/`
   (layouts/base.html, pages/{home,inbox,workflows,journal,patches,patch,chat}.html)
   and the CSS/JS in `synfide/ui/static/`. The module only builds data maps.
-  The ENTRY must mount the assets in its serve block:
-      static "/synfide-ui" from "./synfide/ui/static"
+  The CSS/JS are served BY the dispatcher itself (whitelisted names under
+  /synfide-ui/ — a `static` mount would be shadowed by the `GET /*path`
+  catch-all, since declared routes beat static). The ENTRY declares:
+      require file.read("./synfide/ui/static/*")
 - **The boundary rule made real — THREE routes serve everything.** The user's
   entry never carries framework wiring: `ui.admin_get(path, request, query,
   CONFIG)` + `ui.admin_post(path, request, CONFIG)` behind `GET /`,

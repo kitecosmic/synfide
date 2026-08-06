@@ -23,6 +23,7 @@ require secret
 require random
 require file("./.env")
 require file.read("./.env.example")
+require file.read("./synfide/ui/static/*")
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
@@ -128,7 +129,6 @@ task app_auth(token, request)
 -- Your routes go FIRST (specificity wins over the catch-alls). The last three
 -- routes serve the ENTIRE framework surface, now and in future releases.
 serve on 8080
-    static "/synfide-ui" from "./synfide/ui/static"
     auth with app_auth
     rate_limit 120 per minute
 

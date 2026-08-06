@@ -12,6 +12,7 @@ require random
 require secret
 require file("./.tmp-tests/*")
 require file.read("./.env.example")
+require file.read("./synfide/ui/static/*")
 
 use "./store.syn" as store
 use "./durable.syn" as durable
@@ -579,6 +580,14 @@ test "dispatcher: sirve todo por catch-all, guardia sin sesion, 404 en lo descon
     let r be ui.admin_get("chat", anon, q, nothing)
     assert(status of r >= 300, "sin sesion -> redirect al login")
     assert(contains(body of ui.admin_get("llms.txt", anon, q, nothing), "API"), "llms.txt es publico")
+    -- los assets los sirve el dispatcher (un static mount seria sombreado por
+    -- el catch-all) y son publicos: la pagina de login necesita su css
+    let css be ui.admin_get("synfide-ui/synfide.css", anon, q, nothing)
+    assert(contains(body of css, "--bg:"), "el css real, sin sesion")
+    let js be ui.admin_get("synfide-ui/synfide.js", anon, q, nothing)
+    assert(contains(body of js, "envset"), "el js real, sin sesion")
+    assert_eq(status of ui.admin_get("synfide-ui/otro.txt", anon, q, nothing), 404, "whitelist estricta")
+    assert_eq(status of ui.admin_get("synfide-ui/../ui.syn", anon, q, nothing), 404, "sin traversal")
 
 test "dispatcher: modo open (demos) no exige sesion; el API respeta el guard"
     let anon be {"cookies": {}, "headers": {}}

@@ -21,6 +21,7 @@ require serve(8080)
 require stdout
 require time
 require secret
+require file.read("./synfide/ui/static/*")
 
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
@@ -87,8 +88,6 @@ let DEMO_CONFIG be {
 }
 
 serve on 8080
-    static "/synfide-ui" from "./synfide/ui/static"
-
     route "POST /onboarding/:employee/start"
         log "onboarding run: " + params.employee
         give durable.run(wf_name(params.employee), wf_steps(), {"employee": params.employee})
