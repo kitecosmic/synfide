@@ -1,27 +1,42 @@
--- Synfide · ui — the operator page, served by your own app. No JS build, no
--- assets, no second deploy: one HTML page (inline styles, meta-refresh) over the
--- same state the API serves. The APPROVER's surface: a human opens /inbox/ui on
--- any browser — phone included — and approves or denies with one click.
+-- Synfide · ui — the operator surfaces, laid out like an ADMIN (think Django
+-- admin): a dark branding band, a live status strip, breadcrumbs, a section
+-- sidebar, and content in captioned modules. Built the Synsema way: real
+-- `render()` templates (auto-escaped holes, one shared layout) + real static
+-- assets. This module only builds the DATA; the markup lives in files a
+-- designer can open:
 --
--- The ENTRY wires two routes (and declares serve/memory/time as always):
+--     synfide/ui/layouts/base.html      the admin shell: header, strip,
+--                                       breadcrumbs, sidebar, { slot }
+--     synfide/ui/pages/home.html        the dashboard (app index + recent actions)
+--     synfide/ui/pages/inbox.html       approvals — decide with one click
+--     synfide/ui/pages/workflows.html   every workflow and where it stands
+--     synfide/ui/pages/patches.html     every proposed self-modification
+--     synfide/ui/pages/patch.html       one patch: fields, verdicts, the diff
+--     synfide/ui/pages/journal.html     the action ledger
+--     synfide/ui/pages/chat.html        talk to your agent
+--     synfide/ui/static/synfide.{css,js}
 --
---     use "./synfide/ui.syn" as ui
---     serve on 8080
---         route "GET /inbox/ui"
---             give html(ui.inbox_page())
---         route "GET /inbox/ui/decide"
---             give ui.resolve(query.id, query.approved, query.who)
+-- The ENTRY wires routes, static mount, auth and guards — scaffold/serve.syn
+-- is the canonical wiring: `auth with` on ui.authenticate (bearer for
+-- scripts + session cookie for humans), /setup /login /logout, and every
+-- browser page behind `let g be ui.guard(request)`.
 --
--- Security note: everything rendered is HTML-escaped here (approval messages and
--- workflow names carry user text — an injected <script> must land as text, never
--- as markup).
+-- To restyle or restructure: never edit synfide/ (upgrades replace it). Copy
+-- the template(s) you want to own into your folder, mount your own static
+-- dir, and render your copies from your own routes — `render()` is a
+-- language builtin, the framework adds nothing in between.
+--
+-- Security: every template hole is auto-escaped by `render()` (user text —
+-- approval messages, workflow names, chat turns, patch diffs — lands as text,
+-- never as markup). `{ raw ... }` is never used in these templates.
 
 use "./store.syn" as store
 use "./durable.syn" as durable
 use "./approvals.syn" as approvals
 use "./journal.syn" as journal
+use "./patches.syn" as patches
 
--- HTML-escape. `&` FIRST (or it would re-escape the entities themselves).
+-- HTML-escape for the few NON-template responses (plain-text errors).
 task esc(v)
     let s be text(v)
     set s to replace_text(s, "&", "&amp;")
@@ -30,68 +45,465 @@ task esc(v)
     set s to replace_text(s, "\"", "&quot;")
     give s
 
-task approval_row(a)
-    let id be esc(a["id"])
-    let h be "<div class=\"card\"><b>" + esc(a["message"]) + "</b><br><code>" + id + "</code>"
-    set h to h + "<form action=\"/inbox/ui/decide\" method=\"get\">"
-    set h to h + "<input type=\"hidden\" name=\"id\" value=\"" + id + "\">"
-    set h to h + "<input name=\"who\" placeholder=\"your name\" value=\"web\">"
-    set h to h + "<button name=\"approved\" value=\"yes\" class=\"ok\">Approve</button>"
-    set h to h + "<button name=\"approved\" value=\"no\" class=\"no\">Deny</button>"
-    set h to h + "</form></div>"
-    give h
+-- ---------- shared shell data ----------
 
-task wf_row(w)
-    let step be ""
-    when contains(w, "step")
-        set step to " @ " + esc(w["step"])
-    give "<tr><td><code>" + esc(w["name"]) + "</code></td><td class=\"st-" + esc(w["status"]) + "\">" + esc(w["status"]) + step + "</td></tr>"
-
-task jr_row(e)
-    give "<tr><td>" + esc(e["n"]) + "</td><td>" + esc(e["actor"]) + "</td><td>" + esc(e["action"]) + "</td><td>" + esc(e["detail"]) + "</td></tr>"
-
-task styles()
-    let c be "body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;background:#fafafa;color:#222}"
-    set c to c + "h1{font-size:1.3rem} h2{font-size:1rem;margin-top:2rem;color:#555}"
-    set c to c + ".card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem;margin:.6rem 0}"
-    set c to c + ".card form{margin-top:.6rem;display:flex;gap:.5rem} .card input[name=who]{flex:1;padding:.4rem;border:1px solid #ccc;border-radius:6px}"
-    set c to c + "button{padding:.45rem .9rem;border:0;border-radius:6px;cursor:pointer;font-weight:600}"
-    set c to c + ".ok{background:#16a34a;color:#fff} .no{background:#dc2626;color:#fff}"
-    set c to c + "table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #ddd;border-radius:8px}"
-    set c to c + "td{padding:.4rem .6rem;border-top:1px solid #eee;font-size:.9rem}"
-    set c to c + ".st-done{color:#16a34a} .st-waiting{color:#d97706} .st-failed{color:#dc2626}"
-    set c to c + ".empty{color:#777} .meter{color:#777;font-size:.85rem}"
-    give c
-
--- inbox_page() → the full operator page as HTML text (wrap with html() in your route).
-export task inbox_page()
-    let pending be approvals.pending()
+-- Every page carries the admin shell's data: breadcrumb, sidebar state, and
+-- the live trust strip (pending approvals · parked workflows · llm tokens —
+-- the system never hides). `refresh`/`scroll` are behaviors the JS reads from
+-- body data-attributes.
+task shell_data(title, active, crumb, refresh, scroll)
     let wfs be durable.workflows("")
+    let pending_n be length(approvals.pending())
+    let d be {
+        "title": title,
+        "crumb": crumb,
+        "nav_home": "",
+        "nav_chat": "",
+        "nav_inbox": "",
+        "nav_workflows": "",
+        "nav_patches": "",
+        "nav_journal": "",
+        "nav_env": "",
+        "nav_endpoints": "",
+        "pending_n": pending_n,
+        "pending_badge": pending_n > 0,
+        "parked_n": length(where(wfs, (w) => w["status"] == "waiting")),
+        "tokens": llm_usage(),
+        "refresh": refresh,
+        "scroll": scroll
+    }
+    set d["nav_" + active] to "on"
+    give d
+
+task journal_tail(k)
     let es be journal.entries()
     let maxn be length(es)
-    let tail be where(es, (e) => e["n"] > maxn - 10)
-    let cards be ""
-    when length(pending) == 0
-        set cards to "<p class=\"empty\">Nothing waiting for a human. ✔</p>"
-    otherwise
-        set cards to join(apply(pending, (a) => approval_row(a)), "")
-    let h be "<!doctype html><html><head><meta charset=\"utf-8\">"
-    set h to h + "<meta http-equiv=\"refresh\" content=\"5\">"
-    set h to h + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    set h to h + "<title>Synfide — inbox</title><style>" + styles() + "</style></head><body>"
-    set h to h + "<h1>Synfide · approval inbox</h1>"
-    set h to h + "<p class=\"meter\">llm tokens used by this process: " + esc(llm_usage()) + " · auto-refresh 5s</p>"
-    set h to h + cards
-    set h to h + "<h2>Workflows</h2><table>" + join(apply(wfs, (w) => wf_row(w)), "") + "</table>"
-    set h to h + "<h2>Journal (last 10)</h2><table>" + join(apply(tail, (e) => jr_row(e)), "") + "</table>"
-    set h to h + "</body></html>"
-    give h
+    give where(es, (e) => e["n"] > maxn - k)
+
+-- ---------- view transforms (maps ready for the templates) ----------
+
+task appr_view(a)
+    let msg be text(a["message"])
+    let cls be "msg-text"
+    when contains(msg, "\n")
+        set cls to "msg-text mono"
+    give {"id": a["id"], "message": msg, "cls": cls}
+
+task wf_view(w)
+    let step be ""
+    when contains(w, "step")
+        set step to " @ " + text(w["step"])
+    give {"name": w["name"], "status": w["status"], "step": step, "cls": "st-" + text(w["status"])}
+
+task patch_cls(status)
+    when status == "applied"
+        give "st-done"
+    when status == "audited-no"
+        give "st-failed"
+    when status == "apply-failed"
+        give "st-error"
+    give "st-waiting"
+
+task patch_view(p)
+    give {"id": p["id"], "path": p["path"], "status": p["status"], "why": text(p["why"]), "cls": patch_cls(p["status"])}
+
+-- ---------- pages ----------
+
+-- home_page() → the dashboard (route it at GET /): the app index — each
+-- collection with its counts — plus the recent actions ledger.
+export task home_page()
+    let wfs be durable.workflows("")
+    let tail be journal_tail(8)
+    let d be shell_data("Synfide", "home", "", "", "")
+    set d["done_n"] to length(where(wfs, (w) => w["status"] == "done"))
+    set d["patches_n"] to length(patches.proposals())
+    set d["journal_n"] to length(journal.entries())
+    set d["journal"] to tail
+    set d["has_journal"] to length(tail) > 0
+    give body of render("synfide/ui/pages/home.html", d)
+
+-- inbox_page() → the approvals, decide with one click (auto-refreshes, but
+-- never while a field has focus).
+export task inbox_page()
+    let pending be approvals.pending()
+    let d be shell_data("Synfide — approvals", "inbox", "Approvals", "1", "")
+    set d["approvals"] to apply(pending, (a) => appr_view(a))
+    set d["has_pending"] to length(pending) > 0
+    give body of render("synfide/ui/pages/inbox.html", d)
+
+-- workflows_page() → every workflow the registry knows and where it stands.
+export task workflows_page()
+    let wfs be durable.workflows("")
+    let d be shell_data("Synfide — workflows", "workflows", "Workflows", "1", "")
+    set d["workflows"] to apply(wfs, (w) => wf_view(w))
+    set d["has_wfs"] to length(wfs) > 0
+    give body of render("synfide/ui/pages/workflows.html", d)
+
+-- journal_page() → the action ledger, newest last (last 100).
+export task journal_page()
+    let es be journal.entries()
+    let tail be journal_tail(100)
+    let d be shell_data("Synfide — journal", "journal", "Journal", "1", "")
+    set d["journal"] to tail
+    set d["has_journal"] to length(tail) > 0
+    set d["journal_n"] to length(es)
+    set d["shown_n"] to length(tail)
+    give body of render("synfide/ui/pages/journal.html", d)
+
+-- patches_page() → every proposed self-modification and its verdict.
+export task patches_page()
+    let ps be patches.proposals()
+    let d be shell_data("Synfide — patches", "patches", "Patches", "1", "")
+    set d["patches"] to apply(ps, (p) => patch_view(p))
+    set d["has_patches"] to length(ps) > 0
+    give body of render("synfide/ui/pages/patches.html", d)
+
+-- patch_page(id) → one patch in full: fields, auditor verdict, human gate,
+-- and the exact before/after.
+export task patch_page(id)
+    let p be patches.get(id)
+    when p == nothing
+        give respond("unknown patch: " + esc(id), "text/plain", 404)
+    let d be shell_data("Synfide — patch " + text(id), "patches", "Patches › " + text(id), "", "")
+    set d["id"] to p["id"]
+    set d["path"] to p["path"]
+    set d["status"] to p["status"]
+    set d["cls"] to patch_cls(p["status"])
+    set d["why"] to text(p["why"])
+    set d["has_audit"] to contains(p, "audit_reasons")
+    set d["audit_reasons"] to ""
+    when contains(p, "audit_reasons")
+        set d["audit_reasons"] to text(p["audit_reasons"])
+    let g be approvals.status("patch-" + text(id))
+    set d["has_gate"] to g != nothing
+    set d["gate"] to ""
+    when g != nothing
+        set d["gate"] to text(g["status"])
+    set d["has_error"] to contains(p, "apply_error")
+    set d["apply_error"] to ""
+    when contains(p, "apply_error")
+        set d["apply_error"] to text(p["apply_error"])
+    set d["diff"] to patches.diff_text(p)
+    give body of render("synfide/ui/pages/patch.html", d)
+
+-- ---------- auth: first-run superadmin, real sessions, login ----------
+-- The Django-style story, on engine v0.5.6+: the FIRST visit (no users yet)
+-- redirects to /setup — choose a username and type the password twice → that
+-- account is the superadmin, argon2id-hashed (password_hash, OWASP params),
+-- never stored raw. After that, /login → session id from token() (needs
+-- `require random`) → HttpOnly/SameSite=Lax cookie. The ENTRY wires it:
+--
+--     task app_auth(token, request)          -- bearer for APIs + cookie for humans
+--         give ui.authenticate(token, request)
+--     serve on 8080
+--         auth with app_auth
+--         route "GET /"  ...guard first...
+--
+-- and guards each browser page:  let g be ui.guard(request) / when g != nothing / give g
+
+let SESS_TTL be 604800
+
+export task users_exist()
+    give length(store.list("synfide-user:")) > 0
+
+-- create_first_admin(name, pass, pass2) → the superadmin — ONLY while no user
+-- exists (the /setup wizard); afterwards it refuses forever.
+export task create_first_admin(name, pass, pass2)
+    when users_exist()
+        raise("setup already done — sign in at /login")
+    let n be trim(text(name))
+    when n == ""
+        raise("username required")
+    when length(n) > 32
+        raise("username too long (max 32)")
+    when text(pass) != text(pass2)
+        raise("passwords do not match")
+    when length(text(pass)) < 8
+        raise("password too short (min 8 characters)")
+    store.put("synfide-user:" + n, {"name": n, "phc": password_hash(text(pass)), "role": "superadmin", "created_at": text(now())})
+    journal.record(n, "auth-setup", "superadmin account created")
+    give {"name": n, "role": "superadmin"}
+
+-- login_check(name, pass) → {name, role} or nothing. Argon2id verify is
+-- constant-time; a corrupt stored hash raises (never confused with "wrong
+-- password") — callers decide how loudly to fail.
+export task login_check(name, pass)
+    let u be store.get("synfide-user:" + trim(text(name)), nothing)
+    when u == nothing
+        give nothing
+    when password_verify(text(pass), u["phc"])
+        give {"name": u["name"], "role": u["role"]}
+    give nothing
+
+export task session_start(user)
+    let sid be token()
+    store.put("synfide-sess:" + sid, {"name": user["name"], "role": user["role"], "at": now()})
+    give sid
+
+export task session_user(sid)
+    when sid == nothing
+        give nothing
+    let s be store.get("synfide-sess:" + text(sid), nothing)
+    when s == nothing
+        give nothing
+    when now() - s["at"] > SESS_TTL
+        store.del("synfide-sess:" + text(sid))
+        give nothing
+    give {"name": s["name"], "role": s["role"]}
+
+export task session_end(sid)
+    when sid != nothing
+        store.del("synfide-sess:" + text(sid))
+    give nothing
+
+-- Missing-key access raises in Synsema — read the session cookie defensively.
+task cookie_sid(request)
+    when not contains(request, "cookies")
+        give nothing
+    let cs be request["cookies"]
+    when not contains(cs, "sid")
+        give nothing
+    give cs["sid"]
+
+-- authenticate(token, request) → the ONE auth task for `auth with`: an agent
+-- or script presents `Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>` (sealed,
+-- constant-time), a human presents the session cookie. Either becomes
+-- request.user; neither → 401 on `requires auth` routes.
+export task authenticate(token, request)
+    when token != nothing
+        when text(token) != ""
+            try
+                when constant_time_eq(text(token), secret("SYNFIDE_ADMIN_TOKEN"))
+                    give {"id": "api-admin", "name": "api", "role": "superadmin"}
+            recover err
+                journal.record("auth", "auth-note", "bearer presented but SYNFIDE_ADMIN_TOKEN unset or mismatch")
+    give session_user(cookie_sid(request))
+
+-- guard(request) → for BROWSER pages: nothing when signed in; otherwise the
+-- redirect to follow (/setup on first run, /login after). Wire it at the TOP
+-- of every page route.
+export task guard(request)
+    when not users_exist()
+        give redirect("/setup")
+    when session_user(cookie_sid(request)) == nothing
+        give redirect("/login")
+    give nothing
+
+-- guard_api(request) → same check for fetch/JSON routes: nothing, or a 401.
+export task guard_api(request)
+    when session_user(cookie_sid(request)) == nothing
+        give respond("not signed in", "text/plain", 401)
+    give nothing
+
+-- setup_code() → the first-run gate that makes an OPEN bind safe: while no
+-- account exists, a code lives in the store and is printed ONLY to the server
+-- terminal — whoever completes the wizard must have console access, so a
+-- stranger on the network can never win the first-run race. Idempotent; never
+-- travels in HTTP; burned when setup succeeds.
+export task setup_code()
+    when users_exist()
+        give nothing
+    let c be store.get("synfide-setup-code", nothing)
+    when c == nothing
+        set c to text(random_int(100000, 999999))
+        store.put("synfide-setup-code", c)
+    log "FIRST RUN — setup code: " + c + "  (type it in the /setup wizard; only this terminal shows it)"
+    give nothing
+
+export task setup_page()
+    setup_code()
+    give body of render("synfide/ui/pages/setup.html", {"title": "Synfide — first run"})
+
+export task login_page()
+    give body of render("synfide/ui/pages/login.html", {"title": "Synfide — sign in"})
+
+-- setup_submit(body) → verifies the console code, creates the superadmin and
+-- signs them in (cookie). The code survives failed validations (so a typo in
+-- the password doesn't lock you out) and burns only when setup succeeds.
+export task setup_submit(body)
+    when body == nothing
+        give respond("body must be JSON: {\"name\", \"pass\", \"pass2\", \"code\"}", "text/plain", 400)
+    when users_exist()
+        give respond("setup already done — sign in at /login", "text/plain", 403)
+    let stored be store.get("synfide-setup-code", nothing)
+    when stored == nothing
+        give respond("open /setup first — the setup code prints on the server terminal", "text/plain", 403)
+    let sent be ""
+    when contains(body, "code")
+        set sent to text(body["code"])
+    when not constant_time_eq(sent, stored)
+        give respond("wrong setup code — it is printed on the SERVER terminal", "text/plain", 403)
+    let u be nothing
+    try
+        set u to create_first_admin(body["name"], body["pass"], body["pass2"])
+    recover err
+        give respond(esc(err), "text/plain", 400)
+    store.del("synfide-setup-code")
+    let sid be session_start(u)
+    give set_cookie({"ok": true, "name": u["name"]}, "sid", sid, {"max_age": SESS_TTL})
+
+-- login_submit(body) → verifies and signs in (cookie). Wrong user and wrong
+-- password are the same answer on purpose.
+export task login_submit(body)
+    when body == nothing
+        give respond("body must be JSON: {\"name\", \"pass\"}", "text/plain", 400)
+    let u be nothing
+    try
+        set u to login_check(body["name"], body["pass"])
+    recover err
+        give respond("account store problem — check the server log", "text/plain", 500)
+    when u == nothing
+        journal.record("auth", "auth-denied", "failed sign-in for " + esc(text(body["name"])))
+        give respond("wrong username or password", "text/plain", 403)
+    journal.record(u["name"], "auth-login", "signed in")
+    let sid be session_start(u)
+    give set_cookie({"ok": true, "name": u["name"]}, "sid", sid, {"max_age": SESS_TTL})
+
+export task logout(request)
+    session_end(cookie_sid(request))
+    give clear_cookie(redirect("/login"), "sid")
+
+-- ---------- environment ----------
+
+-- The probe is SEALED: secret(name) never lets the value into program space —
+-- present/absent is all this page can ever know, let alone show. A denied
+-- capability reads as its own state so a missing `require secret` in the
+-- entry can't masquerade as "not set".
+task env_view(name)
+    let state be "set"
+    let cls be "st-done"
+    try
+        secret(name)
+    recover err
+        when contains(text(err), "apability")
+            set state to "no access — add `require secret` to the entry"
+            set cls to "st-waiting"
+        otherwise
+            set state to "not set"
+            set cls to "st-failed"
+    give {"name": name, "state": state, "cls": cls}
+
+-- env_names_from_example(path) → every variable name documented in the given
+-- .env.example (uncommented or commented-out lines alike), in file order,
+-- deduped — so /admin/env shows THE WHOLE surface, not a hand-picked few.
+-- Entry cap: `require file.read("./.env.example")`.
+export task env_names_from_example(path)
+    when not file_exists(path)
+        give []
+    let names be []
+    let seen be {}
+    each ln in split(read_file(path), "\n")
+        let s be trim(ln)
+        while starts_with(s, "#")
+            set s to trim(slice(s, 1, length(s)))
+        when contains(s, "=")
+            let name be trim(split(s, "=")[0])
+            when name != ""
+                when not contains(name, " ")
+                    when upper(name) == name
+                        when not contains(seen, name)
+                            set seen[name] to true
+                            set names to names + [name]
+    give names
+
+-- env_page(names, editable) → configuration: presence always; editing is
+-- WRITE-ONLY when `editable` (values are typed into a password field, travel
+-- once to the server, and can never be read back — the page only ever knows
+-- set / not set). Each write must carry a one-time code that the server
+-- prints to ITS OWN TERMINAL: only the operator at the console can authorize
+-- a change, and a cross-site request can never learn it. The ENTRY declares
+-- `require secret` (+ `require random` and `require file("./.env")` when
+-- editable) and wires:
+--     route "GET /admin/env"        give html(ui.env_page(ENV_VARS, true))
+--     route "POST /admin/env/code"  give ui.env_code_request()
+--     route "POST /admin/env/set"   give ui.env_set(json of request, ENV_VARS)
+export task env_page(names, editable)
+    let d be shell_data("Synfide — environment", "env", "Environment", "", "")
+    set d["vars"] to apply(names, (n) => env_view(n))
+    set d["has_vars"] to length(names) > 0
+    set d["editable"] to editable
+    set d["names"] to names
+    give body of render("synfide/ui/pages/env.html", d)
+
+-- env_code_request() → mints a one-time, short-lived code and prints it ONLY
+-- to the server console (never in the HTTP response). Needs `require random`.
+export task env_code_request()
+    let code be text(random_int(100000, 999999))
+    store.put("synfide-env-code", {"code": code, "at": now()})
+    log "env edit code: " + code + "  (valid 10 minutes, single use)"
+    give {"ok": true, "note": "code printed on the server terminal"}
+
+task burn_env_code(code)
+    let rec be store.get("synfide-env-code", nothing)
+    when rec == nothing
+        raise("no code requested — click \"Request code\" first, then read the server terminal")
+    store.del("synfide-env-code")
+    when now() - rec["at"] > 600
+        raise("code expired — request a fresh one")
+    when not constant_time_eq(text(code), rec["code"])
+        raise("wrong code")
+    give true
+
+-- env_set(body, allowed) → writes NAME=value into ./.env (atomic; creates the
+-- file if absent; replaces the line if present). The value is validated to a
+-- single line (a newline would smuggle extra variables in), the name must be
+-- in the entry's allowed list, and the one-time code must match. The value is
+-- never echoed back, logged, or stored anywhere except .env itself.
+export task env_set(body, allowed)
+    when body == nothing
+        give respond("body must be JSON: {\"name\", \"value\", \"code\"}", "text/plain", 400)
+    let name be text(body["name"])
+    when not contains(allowed, name)
+        give respond("unknown variable: " + esc(name), "text/plain", 400)
+    let value be text(body["value"])
+    when contains(value, "\n") or contains(value, "\r")
+        give respond("value must be a single line", "text/plain", 400)
+    when length(value) > 4096
+        give respond("value too long", "text/plain", 400)
+    try
+        burn_env_code(body["code"])
+    recover err
+        give respond(esc(err), "text/plain", 403)
+    let content be ""
+    when file_exists("./.env")
+        set content to read_file("./.env")
+    let lines be split(content, "\n")
+    let out be []
+    let found be false
+    let i be 0
+    while i < length(lines)
+        let ln be lines[i]
+        when starts_with(ln, name + "=")
+            when not found
+                set out to out + [name + "=" + value]
+                set found to true
+        otherwise
+            when trim(ln) != "" or i < length(lines) - 1
+                set out to out + [ln]
+        set i to i + 1
+    when not found
+        set out to out + [name + "=" + value]
+    write_file("./.env", join(out, "\n") + "\n")
+    journal.record("env-editor", "env-set", name + " (value sealed — written to .env)")
+    give {"ok": true, "name": name, "note": "saved to .env — restart the server to apply"}
+
+-- ---------- endpoints ----------
+
+-- endpoints_page(api_docs) → the curated API, inside the admin shell (the
+-- sidebar link that used to jump to raw /llms.txt was a dead end). Each entry
+-- is one "METHOD /path — what it does\n  curl ..." block. /llms.txt keeps
+-- serving the same list as plain text for agents.
+export task endpoints_page(api_docs)
+    let d be shell_data("Synfide — endpoints", "endpoints", "Endpoints", "", "")
+    set d["docs"] to api_docs
+    set d["has_docs"] to length(api_docs) > 0
+    give body of render("synfide/ui/pages/endpoints.html", d)
 
 -- ---------- chat ----------
--- A minimal chat over the runtime's configured LLM provider (any of them, or a
--- local GGUF — the framework never names one). History persists in the store;
+-- A chat over the runtime's configured LLM provider (any of them, or a local
+-- GGUF — the framework never names one). History persists in the store;
 -- offline it still works, answering with the runtime's placeholder and showing
--- a banner telling you to configure .env. No JS: plain forms + reload.
+-- a banner telling you to configure .env.
 
 task chat_next_n()
     let n be store.get("synfide-chat-n", 0) + 1
@@ -105,9 +517,6 @@ task chat_entries()
 task chat_record(role, content)
     let n be chat_next_n()
     store.put("synfide-chat:" + text(n), {"n": n, "role": role, "text": content})
-
-task chat_bubble(e)
-    give "<div class=\"msg " + esc(e["role"]) + "\"><span>" + esc(e["text"]) + "</span></div>"
 
 task recent_ctx()
     let es be chat_entries()
@@ -143,44 +552,40 @@ export task chat_send_with(message, responder)
 
 -- chat_page() → the chat as HTML text (wrap with html() in your route).
 export task chat_page()
-    let banner be ""
-    when not llm_available()
-        set banner to "<p class=\"warn\">No LLM provider configured — answers are placeholders. Copy .env.example to .env, pick a provider, paste its key, restart the server.</p>"
-    let msgs be join(apply(chat_entries(), (e) => chat_bubble(e)), "")
-    let h be "<!doctype html><html><head><meta charset=\"utf-8\">"
-    set h to h + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    set h to h + "<title>Synfide — chat</title><style>" + styles() + chat_styles() + "</style></head><body>"
-    set h to h + "<h1>Synfide · chat</h1>" + banner
-    set h to h + "<p class=\"meter\"><a href=\"/inbox/ui\">→ approval inbox</a> · llm tokens: " + esc(llm_usage()) + "</p>"
-    set h to h + "<div class=\"chat\">" + msgs + "</div>"
-    set h to h + "<form class=\"send\" action=\"/chat/send\" method=\"get\">"
-    set h to h + "<input name=\"message\" placeholder=\"Say something…\" autofocus autocomplete=\"off\">"
-    set h to h + "<button class=\"ok\">Send</button></form>"
-    set h to h + "</body></html>"
-    give h
+    let es be chat_entries()
+    let d be shell_data("Synfide — chat", "chat", "Chat", "", "1")
+    set d["show_banner"] to not llm_available()
+    set d["messages"] to es
+    set d["has_msgs"] to length(es) > 0
+    give body of render("synfide/ui/pages/chat.html", d)
 
-task chat_styles()
-    let c be ".chat{display:flex;flex-direction:column;gap:.5rem;margin:1rem 0}"
-    set c to c + ".msg{display:flex} .msg span{padding:.55rem .8rem;border-radius:12px;max-width:85%;white-space:pre-wrap}"
-    set c to c + ".msg.user{justify-content:flex-end} .msg.user span{background:#2563eb;color:#fff}"
-    set c to c + ".msg.assistant span{background:#fff;border:1px solid #ddd}"
-    set c to c + ".send{display:flex;gap:.5rem} .send input{flex:1;padding:.55rem;border:1px solid #ccc;border-radius:8px}"
-    set c to c + ".warn{background:#fef3c7;border:1px solid #f59e0b;padding:.6rem .8rem;border-radius:8px}"
-    give c
+-- ---------- decisions ----------
 
--- home_page() → a tiny landing linking the surfaces (route it at GET /).
-export task home_page()
-    let h be "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    set h to h + "<title>Synfide</title><style>" + styles() + "</style></head><body>"
-    set h to h + "<h1>Synfide · your app is running</h1>"
-    set h to h + "<div class=\"card\"><a href=\"/chat\">💬 Chat</a> — talk to the configured LLM provider</div>"
-    set h to h + "<div class=\"card\"><a href=\"/inbox/ui\">✅ Approval inbox</a> — what waits for a human</div>"
-    set h to h + "<p class=\"meter\">operator console from a terminal: <code>synsema run console.syn</code></p>"
-    set h to h + "</body></html>"
-    give h
+-- resolve_json(body) → records a decision arriving as JSON ({id, approved,
+-- who}) — the inbox buttons post THIS way (a cross-site form can't: JSON
+-- posts trigger a preflight and the SameSite=Lax cookie stays home). Wire it
+-- at POST /inbox/ui/decide behind guard_api.
+export task resolve_json(body)
+    when body == nothing
+        give respond("body must be JSON: {\"id\", \"approved\", \"who\"}", "text/plain", 400)
+    let who be text(body["who"])
+    when trim(who) == ""
+        set who to "web"
+    let d be nothing
+    try
+        set d to approvals.resolve(text(body["id"]), body["approved"] == true, who)
+    recover err
+        -- Protected approval: the one-time code (sent through YOUR channel) is
+        -- the authorization — the plain inbox button politely refuses.
+        give respond(esc(err), "text/plain", 403)
+    when d == nothing
+        give respond("unknown approval: " + esc(text(body["id"])), "text/plain", 404)
+    journal.record(who, "ui-decision", text(body["id"]) + " -> " + d["status"])
+    give {"ok": true, "status": d["status"]}
 
--- resolve(id, approved_text, who_text) → records the decision (journaled) and
--- redirects back to the inbox. `approved` is the form value ("yes"/"no").
+-- resolve(id, approved_text, who_text) → the GET-form variant (no-JS). Kept
+-- for compatibility; prefer resolve_json for session-cookie deployments (a
+-- top-level GET navigation does carry a Lax cookie).
 export task resolve(id, approved_text, who_text)
     let who be who_text
     when who == "" or who == nothing

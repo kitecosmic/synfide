@@ -1,0 +1,202 @@
+-- Synfide · patches — self-modification with a seatbelt. An agent may PROPOSE an
+-- exact change to one of YOUR files — or the CREATION of a new one (a new
+-- index.html, pages/presupuestos.html, whatsapp.syn, emails.syn: however YOUR
+-- app grows); a second, independent AUDITOR (an LLM with adversarial
+-- instructions, or your own rules) must pass a verdict; only an audited-ok
+-- patch can be applied — optionally after a HUMAN approves it in the inbox.
+-- Every transition lands in the journal. This is the "improve yourself as you
+-- learn" loop, packaged as mechanism: WHAT the agent may edit or create, WHO
+-- audits, and WHETHER a human gates it are YOUR policy.
+--
+-- Hard rule, enforced here: a patch can NEVER target `synfide/` — framework
+-- files are upgrade-owned. Everything else is scoped by the ENTRY's capability:
+--
+--     require file.read("./brain/*")      -- what the agent may read
+--     require file.write("./brain/*")     -- what apply() may touch
+--
+-- The flow (each step journaled):
+--
+--     propose(id, path, old, new, why)          -- records intent; touches NO file
+--     audit(id, auditor, guidelines)            -- auditor(patch, guidelines) → {approved, reasons}
+--       (or the built-in llm_auditor — an adversarial second model call)
+--     gate(id)                                  -- OPTIONAL human gate for a durable step
+--     apply(id)                                 -- audited-ok (+ approved if gated) → edit_file
+--
+-- A change to a file read at REQUEST time (instructions, prompts, config) is
+-- live immediately — no restart. A change to served code needs a restart; that
+-- policy is yours too.
+--
+-- The entry declares `require memory("name")`, `require time`, the file scopes
+-- above, and `require llm` if you use llm_auditor. This module declares nothing.
+
+use "./store.syn" as store
+use "./approvals.syn" as approvals
+use "./journal.syn" as journal
+
+let PREFIX be "synfide-patch:"
+
+-- Refuses any path that lands in framework territory. Backslashes are
+-- normalized first so Windows-style paths can't sneak past the check.
+task guard_path(path)
+    let p be replace_text(text(path), "\\", "/")
+    when starts_with(p, "./")
+        set p to slice(p, 2, length(p))
+    when p == "synfide"
+        raise("patches: refusing to touch synfide/ — framework files are upgrade-owned. Copy the file out and patch YOUR copy.")
+    when starts_with(p, "synfide/")
+        raise("patches: refusing to touch synfide/ — framework files are upgrade-owned. Copy the file out and patch YOUR copy.")
+    when contains(p, "/synfide/")
+        raise("patches: refusing to touch synfide/ — framework files are upgrade-owned. Copy the file out and patch YOUR copy.")
+    give p
+
+task next_n()
+    let n be store.get("synfide-patch-n", 0) + 1
+    store.put("synfide-patch-n", n)
+    give n
+
+-- propose(id, path, old, new, why) → the patch record (idempotent: an existing
+-- `id` is returned untouched — safe on workflow re-entry). Records INTENT only;
+-- no file is read or written here. Two modes:
+--   EDIT:   `old` = the exact text to replace (unique in the file), `new` its
+--           replacement.
+--   CREATE: `old` = nothing → apply() will CREATE `path` with content `new`
+--           (and refuse if the file already exists — a create never
+--           overwrites). This is how an agent grows the app: propose a new
+--           index.html, a new pages/presupuestos.html, a new whatsapp.syn —
+--           whatever YOUR entry's file scope allows. (A new .syn module runs
+--           only once your entry `use`s it and restarts; a template or data
+--           file that an existing route reads is live immediately.)
+export task propose(id, path, old, new, why)
+    let existing be store.get(PREFIX + id, nothing)
+    when existing != nothing
+        give existing
+    let p be guard_path(path)
+    when old != nothing
+        when text(old) == text(new)
+            raise("patches: old and new are identical — nothing to change")
+    let r be store.put(PREFIX + id, {
+        "id": id,
+        "n": next_n(),
+        "path": p,
+        "old": old,
+        "new": new,
+        "why": why,
+        "status": "proposed",
+        "proposed_at": text(now())
+    })
+    journal.record("patches", "patch-proposed", id + " on " + p + " — " + text(why))
+    give r
+
+-- get(id) → the record, or nothing. proposals() → every patch, oldest first.
+export task get(id)
+    give store.get(PREFIX + id, nothing)
+
+export task proposals()
+    -- No builtin `apply` here: this module exports a task named `apply`, which
+    -- SHADOWS the builtin inside the module. A plain loop instead.
+    let kvs be sort_by(store.list(PREFIX), (kv) => kv["value"]["n"])
+    let out be []
+    let i be 0
+    while i < length(kvs)
+        set out to out + [kvs[i]["value"]]
+        set i to i + 1
+    give out
+
+-- diff_text(patch) → a human-readable before/after block (for gate messages,
+-- journals, UIs). Plain text — escape it yourself if it lands in HTML.
+export task diff_text(patch)
+    let d be patch["path"] + " — " + text(patch["why"]) + "\n"
+    when patch["old"] == nothing
+        set d to d + "+++ new file\n" + text(patch["new"])
+        give d
+    set d to d + "--- before\n" + text(patch["old"]) + "\n"
+    set d to d + "+++ after\n" + text(patch["new"])
+    give d
+
+-- audit(id, auditor, guidelines) → the updated record. The auditor is
+-- INDEPENDENT of whoever proposed: `auditor(patch, guidelines)` must give
+-- {"approved": bool, "reasons": text}. status → "audited-ok" / "audited-no".
+-- An applied patch refuses re-audit; a rejected one may be re-audited (the
+-- proposer may have been wrong once).
+export task audit(id, auditor, guidelines)
+    let p be store.get(PREFIX + id, nothing)
+    when p == nothing
+        raise("patches: unknown patch \"" + id + "\" — propose() it first")
+    when p["status"] == "applied"
+        raise("patches: \"" + id + "\" is already applied — audit is final")
+    let v be call(auditor, {"patch": p, "guidelines": guidelines})
+    when v == nothing
+        raise("patches: auditor returned nothing — it must give {approved, reasons}")
+    when not contains(v, "approved")
+        raise("patches: auditor verdict lacks \"approved\" — it must give {approved, reasons}")
+    when v["approved"]
+        set p["status"] to "audited-ok"
+    otherwise
+        set p["status"] to "audited-no"
+    set p["audit_reasons"] to text(v["reasons"])
+    set p["audited_at"] to text(now())
+    let r be store.put(PREFIX + id, p)
+    journal.record("patches", "patch-audit", id + " -> " + p["status"] + " — " + text(v["reasons"]))
+    give r
+
+-- llm_auditor(patch, guidelines) → a ready-made adversarial auditor over the
+-- runtime's configured provider (entry needs `require llm`). Pass it straight
+-- to audit(): `patches.audit(id, patches.llm_auditor, "never widen file scopes")`.
+-- It is prompted to REJECT when in doubt — the auditor's job is to say no.
+export task llm_auditor(patch, guidelines)
+    let ctx be "You are a strict code auditor. A separate agent proposed this change to its own application files. "
+    set ctx to ctx + "Approve ONLY if the change is safe, small, reversible and matches its stated reason. When in doubt, reject. "
+    set ctx to ctx + "Extra rules from the operator: " + text(guidelines) + "\n\n" + diff_text(patch)
+    let verdict be decide between ["approve", "reject"] given ctx
+    let reasons be reason about "State in one short sentence why this verdict is right for the change shown." with context = ctx + "\nVerdict: " + verdict
+    give {"approved": verdict == "approve", "reasons": text(reasons)}
+
+-- gate(id) → OPTIONAL human gate, shaped for a durable step: parks the workflow
+-- until a human decides "patch-<id>" in the inbox (message carries the full
+-- before/after). Once a gate exists, apply() refuses until it is approved —
+-- the interlock holds even if you call apply() from somewhere else.
+export task gate(id)
+    let p be store.get(PREFIX + id, nothing)
+    when p == nothing
+        raise("patches: unknown patch \"" + id + "\" — propose() it first")
+    give approvals.gate("patch-" + id, "Apply patch " + id + "?\n" + diff_text(p))
+
+-- apply(id) → the ONLY door to the filesystem, and it checks everything again:
+-- status must be "audited-ok", and if a human gate exists it must be approved.
+-- EDIT patches go through `edit_file` (exact, unique match, atomic); CREATE
+-- patches (`old` = nothing) go through `write_file` — refusing if the file
+-- already exists, because a create must never silently overwrite. Both run
+-- under the ENTRY's file scope (creates also need `file.read` for the
+-- existence check — grant `require file("...")` for read+write). Success →
+-- "applied". A failure (the file changed under the patch, or the create's
+-- target appeared) → "apply-failed", journaled, re-raised.
+export task apply(id)
+    let p be store.get(PREFIX + id, nothing)
+    when p == nothing
+        raise("patches: unknown patch \"" + id + "\" — propose() it first")
+    when p["status"] == "applied"
+        give p
+    when p["status"] != "audited-ok"
+        raise("patches: \"" + id + "\" is not audited-ok (status: " + p["status"] + ") — audit() must approve before apply()")
+    let g be approvals.status("patch-" + id)
+    when g != nothing
+        when g["status"] != "approved"
+            raise("patches: \"" + id + "\" is human-gated and the gate is " + g["status"] + " — not applying")
+    try
+        when p["old"] == nothing
+            when file_exists(p["path"])
+                raise("file already exists — a create patch never overwrites")
+            write_file(p["path"], p["new"])
+        otherwise
+            edit_file(p["path"], p["old"], p["new"])
+    recover err
+        set p["status"] to "apply-failed"
+        set p["apply_error"] to text(err)
+        store.put(PREFIX + id, p)
+        journal.record("patches", "patch-apply-failed", id + " on " + p["path"] + " — " + text(err))
+        raise("patches: apply failed for \"" + id + "\": " + text(err))
+    set p["status"] to "applied"
+    set p["applied_at"] to text(now())
+    let r be store.put(PREFIX + id, p)
+    journal.record("patches", "patch-applied", id + " on " + p["path"])
+    give r

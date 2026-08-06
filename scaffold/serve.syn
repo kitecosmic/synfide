@@ -22,12 +22,23 @@ require serve(8080)
 require stdout
 require time
 require llm
+require net("docs.synsema.com")
+-- `secret` powers two things, values always SEALED (never in program space):
+-- the /admin/env presence page, and the admin token check below.
+require secret
+-- The write-only env editor: `random` mints the one-time console codes and
+-- session ids; `file("./.env")` is the ONLY file the editor may touch;
+-- `.env.example` is read once to list EVERY documented variable on /admin/env.
+require random
+require file("./.env")
+require file.read("./.env.example")
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
+use "./synfide/docs.syn" as docs
 
 -- ══════════════════ REPLACE ME: your executor ══════════════════
 -- This runs AFTER a human approves an action. Put your real code here: call
@@ -65,17 +76,39 @@ task tool_list_actions()
         give "no actions proposed yet"
     give join(apply(ws, (w) => w["name"] + ": " + w["status"]), " · ")
 
+-- The agent's Synsema knowledge: LLMs don't know the language yet, so the
+-- docs MCP (docs.synsema.com — the same server coding agents use) is wired in
+-- as tools. When the agent writes or discusses .syn code it can search the
+-- official docs, read a page, and PROVE a snippet in the official sandbox.
+task tool_synsema_docs(query)
+    require net("docs.synsema.com")
+    give docs.search(query)
+
+task tool_synsema_page(slug)
+    require net("docs.synsema.com")
+    give docs.get_page(slug)
+
+task tool_synsema_verify(code)
+    require net("docs.synsema.com")
+    give docs.sandbox_test(code)
+
 let TOOLS be {
     "propose_action": tool_propose_action,
-    "list_actions": tool_list_actions
+    "list_actions": tool_list_actions,
+    "synsema_docs": tool_synsema_docs,
+    "synsema_page": tool_synsema_page,
+    "synsema_verify": tool_synsema_verify
 }
 let CATALOG be [
     {"name": "propose_action", "describe": "Queue an action for execution. ALWAYS call this when the user asks you to do, change, fix or run ANYTHING — never refuse for lack of access: this tool IS your access. A human approves it in their inbox and then it executes. `title` = short imperative description of the action.", "params": ["title"]},
-    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []}
+    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []},
+    {"name": "synsema_docs", "describe": "Search the OFFICIAL Synsema language docs by keyword. Use this BEFORE writing or explaining any .syn code — you do not know Synsema from training; these docs are the truth. Returns matching pages as slug/title/description.", "params": ["query"]},
+    {"name": "synsema_page", "describe": "Fetch one Synsema doc page as Markdown by slug (slugs come from synsema_docs).", "params": ["slug"]},
+    {"name": "synsema_verify", "describe": "Run a Synsema snippet's test blocks in the official sandbox and get pass/fail. ALWAYS verify .syn code here before presenting or proposing it.", "params": ["code"]}
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. Answer briefly."
+let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. For anything involving Synsema code (.syn), you do NOT know the language from training: search synsema_docs, read synsema_page, and verify snippets with synsema_verify before answering. Answer briefly."
 
 task chat_agent(message, history)
     give agent.respond(message, TOOLS, CATALOG, INSTRUCTIONS + "\n--- conversation so far ---\n" + history, 4)
@@ -87,12 +120,41 @@ task heartbeat()
 
 cron_every(15, heartbeat)
 
+-- The auth story (mechanism in synfide/ui.syn, policy here):
+-- · FIRST RUN: no accounts → every admin page redirects to /setup — choose a
+--   username, type the password twice → that account is the SUPERADMIN
+--   (argon2id-hashed, never stored raw) and you are signed in.
+-- · After that: /login → session cookie (HttpOnly, SameSite=Lax, token()).
+-- · Scripts/bots: `Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>` on routes
+--   marked `requires auth` (constant-time vs the sealed secret; unset = those
+--   routes fail CLOSED for bearers — humans use their session).
+task app_auth(token, request)
+    give ui.authenticate(token, request)
+
+when not ui.users_exist()
+    log "FIRST RUN: open http://localhost:8080/setup — the setup code will print HERE when you do."
+
+-- ALL variables documented in .env.example appear on /admin/env (set/not-set,
+-- values sealed). Without the file, the fallback mirrors what `synsema init`
+-- documents today, plus Synfide's own SYNFIDE_ADMIN_TOKEN.
+let ENV_VARS be ui.env_names_from_example("./.env.example")
+when not contains(ENV_VARS, "SYNFIDE_ADMIN_TOKEN")
+    set ENV_VARS to ENV_VARS + ["SYNFIDE_ADMIN_TOKEN"]
+when length(ENV_VARS) == 1
+    set ENV_VARS to ["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MINIMAX_API_KEY", "DEEPSEEK_API_KEY", "SYNSEMA_LLM_MODEL", "SYNSEMA_LLM_MAX_TOKENS", "SYNSEMA_LLM_TIMEOUT", "SYNSEMA_LLM_HTTP_STREAM", "SYNSEMA_LLM_BASE_URL", "SYNSEMA_LLM_BUDGET", "SYNSEMA_SPEND_CEILING", "SYNSEMA_SPEND_CEILING_PER_IDENTITY", "SYNSEMA_SIGN_CEILING", "SYNSEMA_HUMAN_TIMEOUT", "SYNSEMA_HUMAN_WEBHOOK", "SYNSEMA_HUMAN_WEBHOOK_SECRET", "SYNSEMA_HUMAN_PUBLIC_URL", "JWT_KEY", "CAPTOKEN_ROOT_KEY", "AGENT_SIGNING_KEY", "SYNFIDE_ADMIN_TOKEN"]
+
 -- ══ REPLACE ME: security & per-user budgets (mechanisms ready, policy is YOURS) ══
--- · Who may approve: add `requires auth` to the /inbox routes (see the server
---   docs) — or protect an approval so it can be decided from ANY channel with a
---   one-time code: `let code be approvals.protect(id)` (needs `require random`),
---   send the code by Telegram/WhatsApp/SMS, resolve with
---   `approvals.resolve_coded(id, true, who, code)`.
+-- · `synsema serve serve.syn` and done: the login decides WHO gets in, and the
+--   first-run wizard is gated by a code printed on THIS terminal — a stranger
+--   on your network can't win the first-run race even on an open bind.
+--   For remote/team access use TLS (the engine's `tls auto` or your proxy) —
+--   the session cookie is Secure and browsers only send it over HTTPS or
+--   localhost. `--bind 127.0.0.1` remains as OPTIONAL extra hardening.
+-- · Who may approve: any signed-in operator (the decide buttons post JSON —
+--   a cross-site form can't forge that) — or protect an approval so it can be
+--   decided from ANY channel with a one-time code:
+--   `let code be approvals.protect(id)`, send it by Telegram/WhatsApp/SMS,
+--   resolve with `approvals.resolve_coded(id, true, who, code)`.
 -- · Per-user token budgets (a customer must not burn 30k tokens insisting):
 --       use "./synfide/limits.syn" as limits
 --       let before be llm_usage()
@@ -100,28 +162,147 @@ cron_every(15, heartbeat)
 --           give my_over_budget_reply()   -- deny, hand to a human, queue: YOUR call
 --       …answer…
 --       limits.charge("user:" + user_id, llm_usage() - before)
+-- · Self-improvement (the agent patches its OWN files, under audit): the
+--   patches package gives you propose → independent auditor → optional human
+--   gate → atomic apply, all journaled, synfide/ hard-refused. Scope what it
+--   may touch with `require file.write("./your-file")` here, wake an executor
+--   with `cron_every`, and keep instructions in a file you read at request
+--   time so an applied patch is live without a restart. Full working loop:
+--   example_evolve.syn in the repo.
 
 -- ══════════════════ routes (add your own below) ══════════════════
+-- What /llms.txt advertises: ONLY the curated, USABLE API, as copy-paste curl
+-- forms. A declared /llms.txt route replaces the engine's auto-generated one
+-- (which would list every browser page too). Extend this list as you add
+-- routes of your own.
+let API_DOCS be [
+    "GET /chat/send?message=... — ask the agent (it can queue actions); then GET /chat shows the reply.\n  curl -L 'localhost:8080/chat/send?message=hello'",
+    "GET /inbox — approvals waiting for a human, as JSON.\n  curl localhost:8080/inbox",
+    "POST /inbox/:id — decide one (needs the admin token).\n  curl -X POST localhost:8080/inbox/<id> -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>' -H 'Content-Type: application/json' -d '{\"approved\":true,\"who\":\"me\"}'",
+    "GET /actions — every queued action and its status.\n  curl localhost:8080/actions"
+]
+
+task llms_txt()
+    let t be "# Synfide app — agent chat, human approval inbox, durable actions\n\n"
+    set t to t + "> The human surfaces (/, /chat, /inbox/ui, /admin/*) are browser pages — not listed here.\n\n"
+    set t to t + "## API\n- " + join(API_DOCS, "\n- ") + "\n"
+    give respond(t, "text/plain")
+
 serve on 8080
+    -- the UI's stylesheet and script (framework files, served as static assets)
+    static "/synfide-ui" from "./synfide/ui/static"
+    auth with app_auth
+    rate_limit 120 per minute
+
+    -- ── auth: first-run wizard, sign in / out ──
+    route "GET /setup"
+        when ui.users_exist()
+            give redirect("/login")
+        give html(ui.setup_page())
+
+    route "POST /setup/submit"
+        rate_limit 5 per minute
+        give ui.setup_submit(json of request)
+
+    route "GET /login"
+        give html(ui.login_page())
+
+    route "POST /login/submit"
+        rate_limit 5 per minute
+        give ui.login_submit(json of request)
+
+    route "GET /logout"
+        give ui.logout(request)
+
+    -- ── browser pages: every one behind the session guard ──
     route "GET /"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
         give html(ui.home_page())
 
     route "GET /chat"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
         give html(ui.chat_page())
 
     route "GET /chat/send"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
         give ui.chat_send_with(query.message, chat_agent)
 
-    route "GET /inbox"
-        give approvals.pending()
-
     route "GET /inbox/ui"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
         give html(ui.inbox_page())
 
-    route "GET /inbox/ui/decide"
-        give ui.resolve(query.id, query.approved, query.who)
+    route "POST /inbox/ui/decide"
+        let g be ui.guard_api(request)
+        when g != nothing
+            give g
+        give ui.resolve_json(json of request)
 
-    route "POST /inbox/:id"
+    route "GET /admin/workflows"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.workflows_page())
+
+    route "GET /admin/journal"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.journal_page())
+
+    route "GET /admin/patches"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.patches_page())
+
+    route "GET /admin/patches/:id"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.patch_page(params.id))
+
+    route "GET /admin/env"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.env_page(ENV_VARS, true))
+
+    -- write-only editing: session + a one-time code from the SERVER terminal;
+    -- the value lands in .env (sealed, single line, never echoed) — restart to apply
+    route "POST /admin/env/code"
+        let g be ui.guard_api(request)
+        when g != nothing
+            give g
+        give ui.env_code_request()
+
+    route "POST /admin/env/set"
+        let g be ui.guard_api(request)
+        when g != nothing
+            give g
+        give ui.env_set(json of request, ENV_VARS)
+
+    route "GET /admin/endpoints"
+        let g be ui.guard(request)
+        when g != nothing
+            give g
+        give html(ui.endpoints_page(API_DOCS))
+
+    -- ── the JSON API (session OR bearer token — see app_auth) ──
+    route "GET /llms.txt"
+        give llms_txt()
+
+    route "GET /inbox" requires auth
+        give approvals.pending()
+
+    route "POST /inbox/:id" requires auth
         let b be json of request
         when b == nothing
             give fail("body must be JSON: {\"approved\": true|false, \"who\": \"name\"}")
@@ -130,5 +311,5 @@ serve on 8080
             give not_found("no such approval: " + params.id)
         give d
 
-    route "GET /actions"
+    route "GET /actions" requires auth
         give durable.workflows("action-")

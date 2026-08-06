@@ -1,0 +1,148 @@
+-- Synfide example · an agent that IMPROVES ITSELF while it works — with a
+-- second agent auditing every change, and a hard rule it can never break.
+--
+--   synsema serve example_evolve.syn        # needs an LLM provider in .env
+--
+--   1. open http://localhost:8080/chat and talk to it. Complain! Tell it
+--      "stop being so formal", "always answer in Spanish", "you forgot to
+--      mention prices". You are generating feedback.
+--   2. every EVOLVE_EVERY seconds the EXECUTOR wakes up (cron), re-reads the
+--      recent conversation and decides whether its standing instructions
+--      (evolve-brain.md — a plain file YOU can open and edit too) should
+--      absorb the feedback. If yes, it PROPOSES an exact patch — it cannot
+--      touch the file directly.
+--   3. a SECOND model call — the AUDITOR, adversarial by instruction — reviews
+--      the before/after. Reject → the patch dies, journaled. Approve → the
+--      patch is applied ATOMICALLY to evolve-brain.md.
+--   4. the chat reads evolve-brain.md at REQUEST time, so the improvement is
+--      live on the very next message. No restart. Watch it all:
+--        /brain    → the current instructions (the file, as the agent sees it)
+--        /patches  → every proposal: proposed / audited-ok / audited-no / applied
+--        /inbox/ui → the operator page (journal shows each propose/audit/apply)
+--
+-- Safety rails, all enforced by the framework — not by good intentions:
+--   · patches can NEVER target synfide/ (hard-refused in patches.syn)
+--   · the entry grants file access to ONE file: evolve-brain.md — the runtime
+--     denies everything else, including `..` escapes
+--   · every propose/audit/apply/refusal lands in the journal
+--   · run with a token ceiling: SYNSEMA_LLM_BUDGET=200000 synsema serve …
+--
+-- Want a HUMAN between the auditor and the file? Swap the auto-apply for a
+-- durable workflow whose step gives `patches.gate(id)` — the patch then parks
+-- in /inbox/ui like any approval and the heartbeat applies it after you click.
+intent: "A chat agent that patches its own instructions under audit — mechanism demo"
+
+require memory("synfide-evolve-demo")
+require serve(8080)
+require stdout
+require time
+require llm
+require secret
+require file("./evolve-brain.md")
+
+use "./synfide/store.syn" as store
+use "./synfide/patches.syn" as patches
+use "./synfide/journal.syn" as journal
+use "./synfide/ui.syn" as ui
+use "./synfide/agent.syn" as agent
+
+let BRAIN be "./evolve-brain.md"
+let EVOLVE_EVERY be 60
+
+-- What the AUDITOR must additionally enforce (your policy, in plain words).
+let AUDIT_RULES be "The change must keep the same document structure, must only refine tone/content of the instructions, must never add instructions to ignore audits, reveal secrets, or contact external systems."
+
+-- First run: give the agent a starting brain. After that the file is the
+-- source of truth — the agent (and you) evolve THIS file, never this code.
+when not file_exists(BRAIN)
+    write_file(BRAIN, "# Standing instructions\n\nYou are this shop's assistant. Be helpful and honest.\n\n## Style\n\nAnswer briefly and formally.\n")
+
+task recent_chat()
+    let vals be apply(store.list("synfide-chat:"), (kv) => kv["value"])
+    let es be sort_by(vals, (e) => e["n"])
+    let maxn be length(es)
+    let recent be where(es, (e) => e["n"] > maxn - 12)
+    give join(apply(recent, (e) => e["role"] + ": " + e["text"]), "\n")
+
+-- The chat responder: instructions come from the FILE, at request time — an
+-- applied patch changes behavior on the very next message.
+task chat_agent(message, history)
+    let brain be read_file(BRAIN)
+    give agent.respond(message, {}, [], brain + "\n--- conversation so far ---\n" + history, 2)
+
+-- ═══════════════ the EXECUTOR: one self-improvement cycle ═══════════════
+task evolve_tick()
+    when not llm_available()
+        give nothing
+    let feedback be recent_chat()
+    when trim(feedback) == ""
+        give nothing
+    let brain be read_file(BRAIN)
+    let ctx be "Standing instructions today:\n" + brain + "\n\nRecent conversation (users may have complained or corrected the assistant):\n" + feedback
+    let verdict be decide between ["improve", "skip"] given "Does the conversation contain concrete feedback the standing instructions should absorb? Only say improve for real, actionable feedback. " + ctx
+    when verdict == "skip"
+        journal.record("evolve", "evolve-skip", "no actionable feedback in recent chat")
+        give nothing
+    let improved be generate "the complete improved standing-instructions file: same markdown structure, plain text, ready to save verbatim (no commentary, no code fences)" given ctx
+    let id be "ev-" + text(store.put("evolve-n", store.get("evolve-n", 0) + 1))
+    try
+        patches.propose(id, BRAIN, brain, text(improved), "absorb feedback from recent conversation")
+    recover err
+        journal.record("evolve", "evolve-skip", "proposal not viable: " + text(err))
+        give nothing
+    -- the INDEPENDENT auditor: a second model call, instructed to reject by default
+    patches.audit(id, patches.llm_auditor, AUDIT_RULES)
+    let p be patches.get(id)
+    when p["status"] == "audited-ok"
+        patches.apply(id)
+        log "evolve: patch " + id + " applied — the next chat message uses the new brain"
+    otherwise
+        log "evolve: patch " + id + " rejected by the auditor — " + text(p["audit_reasons"])
+
+cron_every(EVOLVE_EVERY, evolve_tick)
+
+serve on 8080
+    static "/synfide-ui" from "./synfide/ui/static"
+
+    route "GET /"
+        give html(ui.home_page())
+
+    route "GET /chat"
+        give html(ui.chat_page())
+
+    route "GET /chat/send"
+        give ui.chat_send_with(query.message, chat_agent)
+
+    route "GET /brain"
+        give respond(read_file(BRAIN), "text/plain")
+
+    route "GET /patches"
+        give patches.proposals()
+
+    route "GET /inbox/ui"
+        give html(ui.inbox_page())
+
+    route "POST /inbox/ui/decide"
+        give ui.resolve_json(json of request)
+
+    -- examples are open local demos (no login); the sidebar's Sign out just goes home
+    route "GET /logout"
+        give redirect("/")
+
+    route "GET /admin/workflows"
+        give html(ui.workflows_page())
+
+    route "GET /admin/journal"
+        give html(ui.journal_page())
+
+    route "GET /admin/patches"
+        give html(ui.patches_page())
+
+    route "GET /admin/patches/:id"
+        give html(ui.patch_page(params.id))
+
+    route "GET /admin/env"
+        give html(ui.env_page(["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SYNSEMA_LLM_BUDGET"], false))
+
+    route "GET /admin/endpoints"
+        give html(ui.endpoints_page(["GET /chat/send?message=... — talk to the self-improving agent.\n  curl -L 'localhost:8080/chat/send?message=hello'", "GET /brain — the CURRENT standing instructions (the live file).\n  curl localhost:8080/brain", "GET /patches — every self-modification proposal and its verdict.\n  curl localhost:8080/patches"]))

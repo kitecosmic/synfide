@@ -1,0 +1,12 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Workflows</h3>
+  { when has_wfs }
+  <div class="tbl"><table>
+    <tr><th>name</th><th>status</th></tr>
+  { each w in workflows }<tr><td>{ w.name }</td><td class="{ w.cls }">{ w.status }{ w.step }</td></tr>
+  { end }</table></div>
+  { otherwise }
+  <p class="empty">No workflows yet. Start one from the chat or your own routes.</p>
+  { end }
+</div>

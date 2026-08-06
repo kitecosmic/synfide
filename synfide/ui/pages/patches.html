@@ -1,0 +1,12 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Patches</h3>
+  { when has_patches }
+  <div class="tbl"><table>
+    <tr><th>id</th><th>file</th><th>status</th><th>why</th></tr>
+  { each p in patches }<tr><td><a href="/admin/patches/{ p.id }">{ p.id }</a></td><td>{ p.path }</td><td class="{ p.cls }">{ p.status }</td><td>{ p.why }</td></tr>
+  { end }</table></div>
+  { otherwise }
+  <p class="empty">No patches proposed yet. An agent proposes one with patches.propose(); an auditor and (optionally) a human stand between the proposal and your disk.</p>
+  { end }
+</div>

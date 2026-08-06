@@ -12,19 +12,39 @@
 --   q              quit
 --
 -- Set SYNFIDE_URL to point elsewhere (default http://127.0.0.1:8080).
+-- The app's API requires auth: put SYNFIDE_ADMIN_TOKEN in .env (the same one
+-- the server checks) — the console sends it as a sealed Bearer header.
 intent: "Terminal console for a running Synfide app, over its HTTP API"
 
 require net("127.0.0.1")
 require env("SYNFIDE_URL")
+require secret("SYNFIDE_ADMIN_TOKEN")
 require stdout
 require stdin
 
 let base be env("SYNFIDE_URL", "http://127.0.0.1:8080")
 
+-- Bearer from the sealed secret; without it, requests go out bare (the server
+-- answers 401 and we say what to do).
+task api_headers()
+    try
+        give {"Authorization": bearer(secret("SYNFIDE_ADMIN_TOKEN")), "Content-Type": "application/json"}
+    recover err
+        give {"Content-Type": "application/json"}
+
+task explain_status(r)
+    when status of r == 401
+        print("  -> 401: set SYNFIDE_ADMIN_TOKEN in .env (both server and console read it)")
+        give nothing
+    print("  -> HTTP " + text(status of r))
+
 task show_pending(base_url)
-    let r be http_get(base_url + "/inbox")
+    let r be http_get(base_url + "/inbox", api_headers())
     when not (ok of r)
-        print("cannot reach " + base_url + " — is the app serving?")
+        when status of r == 401
+            print("401 from " + base_url + " — set SYNFIDE_ADMIN_TOKEN in .env (both server and console read it)")
+        otherwise
+            print("cannot reach " + base_url + " — is the app serving?")
         give false
     let items be json_decode(body of r)["items"]
     when length(items) == 0
@@ -36,11 +56,11 @@ task show_pending(base_url)
 
 task send_decision(base_url, id, approved)
     let payload be json_encode({"approved": approved, "who": "console"})
-    let r be http_post(base_url + "/inbox/" + id, payload, {"Content-Type": "application/json"})
+    let r be http_post(base_url + "/inbox/" + id, payload, api_headers())
     when ok of r
         print("  -> " + text(json_decode(body of r)["status"]))
     otherwise
-        print("  -> HTTP " + text(status of r) + " (unknown id?)")
+        explain_status(r)
 
 -- "a onboarding-ana" → "onboarding-ana" ("" if no argument was given)
 task arg_of(t)
@@ -52,7 +72,7 @@ task arg_of(t)
 print("synfide console → " + base + "   (l=list  a <id>  d <id>  g <path>  q=quit)")
 -- Say it UP FRONT if there is nothing listening — a silent prompt against a dead
 -- URL was the first thing a real user hit.
-let probe be http_get(base + "/inbox")
+let probe be http_get(base + "/inbox", api_headers())
 when not (ok of probe)
     print("⚠ no server at " + base + " — start it in another terminal:  synsema serve serve.syn")
 let running be true
@@ -70,7 +90,7 @@ while running
         otherwise when starts_with(t, "d ")
             send_decision(base, arg_of(t), false)
         otherwise when starts_with(t, "g ")
-            let r be http_get(base + arg_of(t))
+            let r be http_get(base + arg_of(t), api_headers())
             print(body of r)
         otherwise when t != ""
             print("commands: l · a <id> · d <id> · g <path> · q")

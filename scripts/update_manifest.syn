@@ -1,0 +1,71 @@
+-- Synfide dev tool · regenerate manifest.json (every shipped file's sha256).
+-- Pure Synsema — the framework's own release tooling eats its own dog food.
+--
+-- Run from the REPO ROOT after changing any shipped file:
+--
+--     synsema run scripts/update_manifest.syn
+--     SYNFIDE_VERSION=v0.3.7 synsema run scripts/update_manifest.syn   # bump too
+--
+-- It only touches manifest.json. The FILES list below IS the release
+-- definition: add new shipped files here. `dest` is where
+-- `synsema init --synfide` places them in the user's project.
+intent: "Recompute manifest.json hashes (and optionally bump the version)"
+
+require file("./*")
+require env("SYNFIDE_VERSION")
+require stdout
+
+let FILES be [
+    {"src": "synfide/store.syn", "dest": "synfide/store.syn"},
+    {"src": "synfide/durable.syn", "dest": "synfide/durable.syn"},
+    {"src": "synfide/approvals.syn", "dest": "synfide/approvals.syn"},
+    {"src": "synfide/treasury.syn", "dest": "synfide/treasury.syn"},
+    {"src": "synfide/limits.syn", "dest": "synfide/limits.syn"},
+    {"src": "synfide/cassettes.syn", "dest": "synfide/cassettes.syn"},
+    {"src": "synfide/journal.syn", "dest": "synfide/journal.syn"},
+    {"src": "synfide/patches.syn", "dest": "synfide/patches.syn"},
+    {"src": "synfide/docs.syn", "dest": "synfide/docs.syn"},
+    {"src": "synfide/ui.syn", "dest": "synfide/ui.syn"},
+    {"src": "synfide/agent.syn", "dest": "synfide/agent.syn"},
+    {"src": "synfide/ui/layouts/base.html", "dest": "synfide/ui/layouts/base.html"},
+    {"src": "synfide/ui/layouts/auth.html", "dest": "synfide/ui/layouts/auth.html"},
+    {"src": "synfide/ui/pages/setup.html", "dest": "synfide/ui/pages/setup.html"},
+    {"src": "synfide/ui/pages/login.html", "dest": "synfide/ui/pages/login.html"},
+    {"src": "synfide/ui/pages/home.html", "dest": "synfide/ui/pages/home.html"},
+    {"src": "synfide/ui/pages/chat.html", "dest": "synfide/ui/pages/chat.html"},
+    {"src": "synfide/ui/pages/inbox.html", "dest": "synfide/ui/pages/inbox.html"},
+    {"src": "synfide/ui/pages/workflows.html", "dest": "synfide/ui/pages/workflows.html"},
+    {"src": "synfide/ui/pages/journal.html", "dest": "synfide/ui/pages/journal.html"},
+    {"src": "synfide/ui/pages/patches.html", "dest": "synfide/ui/pages/patches.html"},
+    {"src": "synfide/ui/pages/patch.html", "dest": "synfide/ui/pages/patch.html"},
+    {"src": "synfide/ui/pages/env.html", "dest": "synfide/ui/pages/env.html"},
+    {"src": "synfide/ui/pages/endpoints.html", "dest": "synfide/ui/pages/endpoints.html"},
+    {"src": "synfide/ui/static/synfide.css", "dest": "synfide/ui/static/synfide.css"},
+    {"src": "synfide/ui/static/synfide.js", "dest": "synfide/ui/static/synfide.js"},
+    {"src": "synfide/GUIDE.md", "dest": "synfide/GUIDE.md"},
+    {"src": "scaffold/AGENTS.md", "dest": "AGENTS.md"},
+    {"src": "scaffold/app.syn", "dest": "app.syn"},
+    {"src": "scaffold/serve.syn", "dest": "serve.syn"},
+    {"src": "scaffold/console.syn", "dest": "console.syn"},
+    {"src": "test_synfide.syn", "dest": "test_synfide.syn"}
+]
+
+let current be json_decode(read_file("manifest.json"))["version"]
+let version be env("SYNFIDE_VERSION", current)
+
+-- Hand-built pretty JSON: stable, diff-friendly (one file per block).
+let out be "{\n  \"version\": \"" + version + "\",\n  \"files\": [\n"
+let i be 0
+while i < length(FILES)
+    let f be FILES[i]
+    let digest be decode(sha256(read_file_bytes(f["src"])), "hex")
+    set out to out + "    {\n      \"src\": \"" + f["src"] + "\",\n"
+    set out to out + "      \"dest\": \"" + f["dest"] + "\",\n"
+    set out to out + "      \"sha256\": \"" + digest + "\"\n    }"
+    set i to i + 1
+    when i < length(FILES)
+        set out to out + ","
+    set out to out + "\n"
+set out to out + "  ]\n}\n"
+write_file("manifest.json", out)
+print("manifest.json: " + version + ", " + text(length(FILES)) + " files")

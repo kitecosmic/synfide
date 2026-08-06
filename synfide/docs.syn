@@ -1,0 +1,67 @@
+-- Synfide · docs — give YOUR runtime agent the Synsema knowledge it lacks.
+-- LLMs don't know Synsema yet: an agent asked to write or fix `.syn` files
+-- (the patches package makes that a real workflow) will guess wrong unless it
+-- can consult the official docs and PROVE its code runs. This module is a tiny
+-- client for the official docs MCP server (docs.synsema.com/mcp — the same one
+-- coding agents add with `claude mcp add`), exposed as plain tasks you can
+-- wire as agent tools:
+--
+--   docs.search(query)        → matching doc pages (slug — title — description)
+--   docs.get_page(slug)       → one doc page as Markdown (e.g. "34-cron")
+--   docs.get_example(id)      → a doctested .syn example (e.g. "secret-bearer")
+--   docs.sandbox_run(code)    → run a snippet in the OFFICIAL sandbox (no exec,
+--                               no real net) and return its stdout + errors
+--   docs.sandbox_test(code)   → run a snippet's `test` blocks; pass/fail text
+--
+-- The killer combo with patches: the agent searches the docs, drafts the .syn,
+-- runs sandbox_test until green, and only THEN proposes the patch — the
+-- auditor and your gate still stand between the draft and your disk.
+--
+-- The ENTRY declares the capability (this module declares nothing):
+--
+--     require net("docs.synsema.com")
+
+let MCP_URL be "https://docs.synsema.com/mcp"
+
+task rpc(method_name, params)
+    let payload be json_encode({"jsonrpc": "2.0", "id": 1, "method": method_name, "params": params})
+    let r be http_post(MCP_URL, payload, {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+    when status of r != 200
+        raise("docs: MCP server answered HTTP " + text(status of r))
+    let parsed be json_decode(body of r)
+    when contains(parsed, "error")
+        raise("docs: MCP error: " + json_encode(parsed["error"]))
+    give parsed["result"]
+
+-- The MCP tool result carries a list of content blocks; the docs server
+-- answers with one text block.
+task tool_text(result)
+    let blocks be result["content"]
+    when length(blocks) == 0
+        give ""
+    give text(blocks[0]["text"])
+
+task call_tool_named(name, args)
+    give tool_text(rpc("tools/call", {"name": name, "arguments": args}))
+
+-- search(query) → doc pages matching the keyword, as "slug — title — description" lines.
+export task search(query)
+    give call_tool_named("search_docs", {"query": text(query)})
+
+-- get_page(slug) → the full doc page as Markdown (slugs come from search()).
+export task get_page(slug)
+    give call_tool_named("get_page", {"slug": text(slug)})
+
+-- get_example(id) → a complete, doctested .syn example.
+export task get_example(id)
+    give call_tool_named("get_example", {"id": text(id)})
+
+-- sandbox_run(code) → stdout + errors of the snippet, run in the official
+-- sandbox (compute/print/in-memory SQL/scratch files; NO exec, NO real net).
+export task sandbox_run(code)
+    give call_tool_named("run_synsema", {"code": text(code)})
+
+-- sandbox_test(code) → the snippet's `test` blocks, run in the sandbox;
+-- returns pass/fail so an agent can verify its code BEFORE proposing a patch.
+export task sandbox_test(code)
+    give call_tool_named("test_synsema", {"code": text(code)})

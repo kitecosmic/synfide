@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{ title }</title>
+<link rel="stylesheet" href="/synfide-ui/synfide.css">
+</head>
+<body data-refresh="{ refresh }" data-scroll="{ scroll }">
+<header>
+  <div class="bar">
+    <a class="mark" href="/"><span class="seal">&#10003;</span>Synfide <span class="adm">administration</span></a>
+  </div>
+</header>
+<div class="strip"><div>{ pending_n } waiting for a human &middot; { parked_n } workflow(s) parked &middot; { tokens } llm tokens this process</div></div>
+<div class="crumbs"><div>
+<a href="/">Home</a>{ when crumb } &rsaquo; { crumb }{ end }
+</div></div>
+<div class="shell">
+  <aside class="side">
+    <nav>
+      <a href="/" class="{ nav_home }">Dashboard</a>
+      <a href="/inbox/ui" class="{ nav_inbox }">Approvals{ when pending_badge } <span class="badge">{ pending_n }</span>{ end }</a>
+      <a href="/admin/workflows" class="{ nav_workflows }">Workflows</a>
+      <a href="/admin/patches" class="{ nav_patches }">Patches</a>
+      <a href="/admin/journal" class="{ nav_journal }">Journal</a>
+      <a href="/admin/env" class="{ nav_env }">Environment</a>
+      <a href="/admin/endpoints" class="{ nav_endpoints }">Endpoints</a>
+      <a href="/chat" class="{ nav_chat }">Chat</a>
+    </nav>
+    <p class="side-note">terminal: <code>synsema run console.syn</code><br><a href="/logout">Sign out</a></p>
+  </aside>
+  <main>
+{ slot }
+  </main>
+</div>
+<script src="/synfide-ui/synfide.js"></script>
+</body>
+</html>

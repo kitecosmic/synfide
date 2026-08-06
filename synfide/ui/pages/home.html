@@ -1,0 +1,43 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="two-col">
+<div>
+  <div class="module">
+    <h3 class="caption">Approvals</h3>
+    <table class="applist">
+      <tr><td><a href="/inbox/ui">Waiting for a human</a></td><td class="num">{ pending_n }</td><td class="act"><a href="/inbox/ui">Decide</a></td></tr>
+    </table>
+  </div>
+  <div class="module">
+    <h3 class="caption">Workflows</h3>
+    <table class="applist">
+      <tr><td><a href="/admin/workflows">Parked (waiting)</a></td><td class="num">{ parked_n }</td><td class="act"><a href="/admin/workflows">View</a></td></tr>
+      <tr><td><a href="/admin/workflows">Done</a></td><td class="num">{ done_n }</td><td class="act"><a href="/admin/workflows">View</a></td></tr>
+    </table>
+  </div>
+  <div class="module">
+    <h3 class="caption">Patches</h3>
+    <table class="applist">
+      <tr><td><a href="/admin/patches">Proposed &amp; audited</a></td><td class="num">{ patches_n }</td><td class="act"><a href="/admin/patches">View</a></td></tr>
+    </table>
+  </div>
+  <div class="module">
+    <h3 class="caption">Agent</h3>
+    <table class="applist">
+      <tr><td><a href="/chat">Chat</a></td><td class="num"></td><td class="act"><a href="/chat">Open</a></td></tr>
+      <tr><td><a href="/admin/journal">Journal ({ journal_n } actions)</a></td><td class="num"></td><td class="act"><a href="/admin/journal">View</a></td></tr>
+    </table>
+  </div>
+</div>
+<aside class="recent">
+  <div class="module">
+    <h3 class="caption">Recent actions</h3>
+    { when has_journal }
+    <ul class="actions">
+    { each e in journal }<li><span class="who">{ e.actor }</span> <span class="what">{ e.action }</span><br><span class="det">{ e.detail }</span></li>
+    { end }</ul>
+    { otherwise }
+    <p class="empty-inline">None yet. Every tool call, approval and patch lands here.</p>
+    { end }
+  </div>
+</aside>
+</div>

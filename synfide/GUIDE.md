@@ -13,6 +13,8 @@ This file covers what those do NOT: the framework's packages, contracts and rule
    replace them (an edited one is kept + `.new`, but that's a conflict, not a
    workflow). Extend by writing YOUR `.syn` files that `use` the packages. To
    fork a package, copy it to your own folder (e.g. `mylib/`) and import that.
+   The `patches` package enforces this rule in code: a proposed patch can never
+   target `synfide/`.
 2. **Packages never declare top-level capabilities.** The ENTRY file (your
    `serve.syn` / `app.syn`) declares everything: `require memory("name")`,
    `require serve(PORT)`, `require time`, `require llm`, `require net(...)`,
@@ -36,6 +38,16 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   the `synfide/` folder.
 - `http_post(url, map)` sends a FORM body; for JSON pass
   `http_post(url, json_encode(m), {"Content-Type": "application/json"})`.
+- An exported task SHADOWS a same-named builtin INSIDE its own module: export a
+  task named `apply` and the builtin `apply(list, fn)` is gone in that file
+  (callers are fine — they say `mod.apply`). Loop instead, or rename.
+- `grep(dir, ...)` needs the DIRECTORY itself in the file scope, not just its
+  files: `require file.read("./logs")` AND `file.read("./logs/*")`.
+- `slice` is Python-style: 0-based start, end-exclusive.
+- Cron is LANGUAGE-level, not a package: `cron_every(seconds, task)` /
+  `cron_after(seconds, task)` / `cron_list()` / `cron_cancel(name)` — fixed
+  delay between END of one run and start of the next (not wall-clock cron);
+  jobs live under `synsema serve` (or `run` while the program stays alive).
 - Run tests with fresh dirs: `SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn`.
 
 ## Packages (exact API)
@@ -114,9 +126,111 @@ This file covers what those do NOT: the framework's packages, contracts and rule
 - Tools that need a human should START a durable workflow whose gate parks in
   the inbox — the agent answers "waiting for approval", the heartbeat finishes.
 
+### patches — self-modification with a seatbelt (needs: memory, time; apply: file.write scope; llm_auditor: llm)
+- The loop the framework packages: an agent PROPOSES an exact change to one of
+  YOUR files, an independent AUDITOR passes a verdict, only audited-ok patches
+  APPLY — optionally after a human gate. Every transition journaled. A patch
+  can NEVER target `synfide/` (hard-refused, Windows backslashes included).
+- `patches.propose(id, path, old, new, why)` → record (idempotent; touches no
+  file). EDIT: `old` = exact unique text in the file, `new` = replacement.
+  CREATE: `old` = nothing → apply() creates `path` with content `new`,
+  refusing if the file exists (a create never overwrites). This is how the
+  agent GROWS the app: a new index.html, pages/presupuestos.html,
+  whatsapp.syn — whatever the entry's file scope allows. A new `.syn` module
+  runs only once your entry `use`s it (and restarts); a template or data file
+  an existing route reads is live immediately. Creates also need `file.read`
+  (the existence check) — grant `require file("./pages/*")` for read+write.
+- `patches.audit(id, auditor, guidelines)` → record with status "audited-ok" /
+  "audited-no". `auditor(patch, guidelines)` must give `{approved, reasons}`.
+  Applied patches refuse re-audit; rejected ones may be re-audited.
+- `patches.llm_auditor` → ready-made ADVERSARIAL auditor (a second model call,
+  instructed to reject when in doubt): `patches.audit(id, patches.llm_auditor, "your rules")`.
+- `patches.gate(id)` → human gate for a durable step: parks "patch-<id>" in the
+  inbox with the full before/after. Once a gate exists, apply() refuses until
+  it is approved — the interlock holds from any call site.
+- `patches.apply(id)` → re-checks everything (audited-ok + gate approved if
+  present), then `edit_file` (atomic, exact-match) under the ENTRY's
+  `file.write` scope. Old text no longer matches → "apply-failed", journaled,
+  re-raised. Re-apply of an applied patch is a no-op.
+- `patches.get(id)` / `patches.proposals()` / `patches.diff_text(patch)`.
+- A file read at REQUEST time (instructions, prompts, config) changes behavior
+  live after apply — no restart. See `example_evolve.syn` for the full
+  executor + auditor + cron loop.
+
+### docs — the agent's Synsema knowledge (needs: net("docs.synsema.com"))
+- LLMs don't know Synsema from training. This is a client for the OFFICIAL
+  docs MCP server (the same one coding agents add with `claude mcp add`),
+  exposed as plain tasks to wire as agent tools — the scaffold's serve.syn
+  wires them as `synsema_docs` / `synsema_page` / `synsema_verify`.
+- `docs.search(query)` → matching doc pages (slug — title — description).
+  `docs.get_page(slug)` → one page as Markdown. `docs.get_example(id)` → a
+  doctested .syn example.
+- `docs.sandbox_run(code)` / `docs.sandbox_test(code)` → run a snippet (or
+  its `test` blocks) in the official sandbox — no exec, no real net. The
+  combo with patches: search docs → draft .syn → `sandbox_test` until green →
+  ONLY THEN `patches.propose` — the auditor and your gate still stand
+  between the draft and your disk.
+
 ### ui — the human surfaces (needs: memory, time, serve; llm for chat)
-- `ui.inbox_page()` / `ui.home_page()` / `ui.chat_page()` → HTML text (wrap in
-  `html(...)`). Everything user-provided is HTML-escaped.
+- An ADMIN, laid out the way Django's admin taught everyone to read one:
+  branding band, live trust strip, breadcrumbs, section sidebar (with a
+  pending-approvals badge), captioned modules. Built the Synsema way:
+  `render()` templates + static assets. The markup lives in `synfide/ui/`
+  (layouts/base.html, pages/{home,inbox,workflows,journal,patches,patch,chat}.html)
+  and the CSS/JS in `synfide/ui/static/`. The module only builds data maps.
+  The ENTRY must mount the assets in its serve block:
+      static "/synfide-ui" from "./synfide/ui/static"
+- Pages (each → HTML text; wrap in `html(...)`): `home_page()` the dashboard
+  (app index + recent actions) · `inbox_page()` approvals with one-click
+  decide · `workflows_page()` · `journal_page()` (last 100) ·
+  `patches_page()` + `patch_page(id)` (fields, verdicts, the diff; 404 map on
+  unknown id) · `env_page(names, editable)` configuration ·
+  `endpoints_page(api_docs)` the curated API in-shell · `chat_page()`.
+  Canonical routes: `/` `/inbox/ui` `/admin/workflows` `/admin/journal`
+  `/admin/patches` `/admin/patches/:id` `/admin/env` (+ POST
+  `/admin/env/code`, `/admin/env/set`) `/admin/endpoints` `/chat`.
+  `/llms.txt` serves the same curated API as plain text for agents — the
+  scaffold overrides the engine's auto-generated route table with its
+  `API_DOCS` list (browser pages don't belong in an agent-facing endpoint
+  list); extend it as you add routes.
+- **Environment, write-only:** `env_page(names, editable)` shows each
+  variable as set / not set — probed via SEALED `secret()`, values never
+  enter program space and are NEVER displayed. With `editable`, a value can
+  be SET: typed into a password field (shows ●●●), sent once as JSON, written
+  atomically to `./.env` (single-line validated — a newline would smuggle
+  extra variables), and never echoed back. Every save needs a one-time code
+  from `env_code_request()` that is printed ONLY to the server terminal
+  (proves console access; unforgeable cross-site; single use, 10 min, burned
+  on use — `constant_time_eq`). Entry caps: `require secret` + `require
+  random` + `require file("./.env")`. Restart to apply; `synsema llm status`
+  diagnoses LLM wiring.
+- The chat composer is a textarea: Enter sends, Shift+Enter makes a new line;
+  messages render with newlines preserved (pre-wrap).
+- List pages auto-refresh but never while a field has focus; patch diffs and
+  multi-line approval messages render as scrollable monospace blocks. Every
+  template hole is auto-escaped by `render()`; `{ raw }` is never used.
+- **Auth (engine v0.5.6+): first-run superadmin + real sessions.** No users →
+  every guarded page redirects to `/setup`: choose a username, type the
+  password twice → superadmin, argon2id-hashed (`password_hash`), signed in.
+  Then `/login` → `token()` session id → HttpOnly SameSite=Lax cookie (7d).
+  API: `ui.authenticate(token, request)` is the ONE `auth with` task — bearer
+  `SYNFIDE_ADMIN_TOKEN` (sealed, constant-time) for scripts, cookie for
+  humans. Pattern per browser route: `let g be ui.guard(request)` → redirect
+  or nothing; JSON routes use `ui.guard_api(request)` (401). Auth surface:
+  `users_exist` `create_first_admin` `login_check` `session_start/user/end`
+  `setup_page/submit` `login_page/submit` `logout`. Decisions post JSON
+  (`resolve_json`) — cross-site forms can't forge them (Lax + preflight).
+  Rate-limit the login route (`rate_limit 5 per minute`). Coded approvals
+  (`approvals.protect`) still authorize single decisions from ANY channel.
+  Never pass credentials in query params. The FIRST-RUN race is closed by
+  `setup_code()`: /setup demands a code printed only on the server terminal,
+  so `synsema serve serve.syn` is safe as-is even on an open bind. Remote
+  access needs TLS anyway (the session cookie is Secure: browsers send it
+  only over HTTPS or localhost — engine `tls auto` or your proxy).
+  `--bind 127.0.0.1` is optional extra hardening, not a requirement.
+- To restyle: don't edit `synfide/` — copy the template(s) into your folder,
+  mount your own static dir, render your copies from your own routes
+  (`render()` is a language builtin; the framework adds nothing in between).
 - `ui.resolve(id, approved_text, who_text)` → decision + redirect (route it at
   `GET /inbox/ui/decide` with `query.id/approved/who`).
 - `ui.chat_send(message)` (plain LLM) / `ui.chat_send_with(message, responder)`
@@ -132,3 +246,12 @@ a durable workflow → `approvals.gate` parks it in the inbox (`/inbox/ui`, the
 console, or a coded link on any channel) → a human resolves → `cron_every`
 heartbeat re-runs it → your `execute_action()` does the real work → everything
 in the journal, money through treasury, tokens through limits.
+
+And the self-improvement loop on top (`example_evolve.syn` shows it end to
+end): `cron_every` wakes an EXECUTOR → it reads recent conversation/journal →
+`patches.propose` an exact change to ITS OWN instruction/config files — or a
+NEW file: a page, a template, a module (scoped by the entry's file caps;
+never `synfide/`) → an independent AUDITOR
+(`patches.llm_auditor` or your rules) approves or rejects → optionally
+`patches.gate` parks it for a human → `patches.apply` lands it atomically →
+files read at request time make the change live without a restart.

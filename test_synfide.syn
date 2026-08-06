@@ -3,12 +3,14 @@
 --
 --   SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
 --
-intent: "Prove store, durable re-entry, approvals, treasury, cassettes and journal"
+intent: "Prove store, durable re-entry, approvals, treasury, cassettes, journal and patches"
 
 require memory("synfide-tests")
 require time
 require spend("T_*")
 require random
+require secret
+require file("./.tmp-tests/*")
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
@@ -19,6 +21,7 @@ use "./synfide/journal.syn" as journal
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
 use "./synfide/limits.syn" as limits
+use "./synfide/patches.syn" as patches
 
 -- ---------- store ----------
 
@@ -254,7 +257,8 @@ test "ui: the inbox page escapes user text — injected markup lands as text"
     assert(not contains(page, "<script>alert(1)"))
     assert(contains(page, "&amp; &quot;quotes&quot;"))
     assert(contains(page, "xss-probe"))
-    assert(contains(page, "/inbox/ui/decide"), "el form apunta a la ruta de decision")
+    assert(contains(page, "form class=\"decide\""), "el form de decision existe (postea JSON via JS)")
+    assert(contains(page, "data-id=\"xss-probe\""), "el id viaja como data-attribute")
 
 test "ui: decide resolves, journals, and redirects back to the inbox"
     approvals.request("ui-1", "ship the ui?")
@@ -263,6 +267,45 @@ test "ui: decide resolves, journals, and redirects back to the inbox"
     assert_eq(approvals.status("ui-1")["decided_by"], "web", "quien vacio cae a \"web\"")
     let acts be apply(journal.entries(), (e) => e["action"])
     assert(contains(acts, "ui-decision"))
+
+test "ui admin: workflows, journal y patches renderizan sus colecciones escapadas"
+    let wp be ui.workflows_page()
+    assert(contains(wp, "t-happy"), "el registro de workflows aparece")
+    let jp be ui.journal_page()
+    assert(contains(jp, "ui-decision"), "el journal lista acciones")
+    patches.propose("ui-pt", "./.tmp-tests/x.md", "<script>alert(2)</script>", "safe", "ui probe <b>bold</b>")
+    let pp be ui.patches_page()
+    assert(contains(pp, "ui-pt"))
+    assert(contains(pp, "ui probe &lt;b&gt;bold&lt;/b&gt;"), "el why del patch, escapado")
+    let dp be ui.patch_page("ui-pt")
+    assert(contains(dp, "&lt;script&gt;alert(2)&lt;/script&gt;"), "el diff, escapado")
+    assert(not contains(dp, "<script>alert(2)"))
+    assert_eq(status of ui.patch_page("no-existe"), 404)
+
+test "ui env: presencia sin valores — una var ausente es not set, nada se muestra"
+    let page be ui.env_page(["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"], false)
+    assert(contains(page, "SYNFIDE_TEST_VAR_QUE_NO_EXISTE"))
+    assert(contains(page, "st-failed"), "ausente -> not set")
+    assert(not contains(page, "envset"), "sin editable no hay formulario")
+    let page2 be ui.env_page(["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"], true)
+    assert(contains(page2, "type=\"password\""), "el valor se tipea como password")
+    assert(contains(page2, "one-time code") or contains(page2, "One-time code"), "cada guardado exige el codigo de consola")
+
+test "ui env: env_set exige codigo de consola valido, de un solo uso, y escribe .env"
+    -- sin codigo pedido -> 403
+    let r1 be ui.env_set({"name": "SYNFIDE_TEST_VAR_QUE_NO_EXISTE", "value": "v1", "code": "000000"}, ["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"])
+    assert_eq(status of r1, 403)
+    -- variable fuera de la lista -> 400
+    let r2 be ui.env_set({"name": "OTRA_VAR", "value": "v", "code": "1"}, ["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"])
+    assert_eq(status of r2, 400)
+    -- valor multilinea (inyectaria variables extra) -> 400
+    let r3 be ui.env_set({"name": "SYNFIDE_TEST_VAR_QUE_NO_EXISTE", "value": "a\nB=x", "code": "1"}, ["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"])
+    assert_eq(status of r3, 400)
+
+test "ui endpoints: la lista curada renderiza dentro del shell"
+    let page be ui.endpoints_page(["GET /x — does x.\n  curl localhost:8080/x"])
+    assert(contains(page, "curl localhost:8080/x"))
+    assert(contains(page, "/llms.txt"), "linkea la version para agentes")
 
 -- ---------- chat ----------
 
@@ -273,6 +316,12 @@ test "chat: send records both sides and the page renders them escaped"
     assert(not contains(page, "<b>mundo</b>"))
     assert(contains(page, "assistant"), "hay respuesta del asistente (offline = placeholder)")
     assert(contains(page, "/chat/send"), "el form apunta a la ruta de envio")
+    assert(contains(page, "<textarea"), "el composer es multilinea")
+
+test "chat: los saltos de linea del mensaje sobreviven y se renderizan"
+    ui.chat_send("linea uno\nlinea dos")
+    let page be ui.chat_page()
+    assert(contains(page, "linea uno\nlinea dos"), "el \\n persiste en la historia y el bubble (pre-wrap lo muestra)")
 
 test "chat: an empty message is a no-op redirect, history intact"
     ui.chat_send("")
@@ -307,6 +356,212 @@ test "limits: charge accumulates, within cuts, reset forgets"
     assert_eq(limits.spent("u:2"), 0, "las claves no se mezclan")
     limits.reset("u:1")
     assert_eq(limits.spent("u:1"), 0)
+
+-- ---------- patches (auto-modificacion con auditor) ----------
+
+task yes_auditor(patch, guidelines)
+    give {"approved": true, "reasons": "looks safe: " + text(guidelines)}
+
+task no_auditor(patch, guidelines)
+    give {"approved": false, "reasons": "too risky"}
+
+test "patches: propose is idempotent and NEVER accepts synfide/ paths"
+    let p1 be patches.propose("pt-1", "./.tmp-tests/brain.md", "be brief", "be brief and kind", "user feedback")
+    assert_eq(p1["status"], "proposed")
+    let p2 be patches.propose("pt-1", "./other.md", "x", "y", "must not overwrite")
+    assert_eq(p2["path"], ".tmp-tests/brain.md", "el registro original queda intacto")
+    let m1 be ""
+    try
+        patches.propose("pt-bad", "synfide/ui.syn", "a", "b", "nope")
+    recover err
+        set m1 to err
+    assert(contains(m1, "framework files"))
+    let m2 be ""
+    try
+        patches.propose("pt-bad2", ".\\synfide\\ui.syn", "a", "b", "ni con backslashes")
+    recover err
+        set m2 to err
+    assert(contains(m2, "framework files"))
+    let m3 be ""
+    try
+        patches.propose("pt-bad3", "./app/synfide/ui.syn", "a", "b", "ni anidado")
+    recover err
+        set m3 to err
+    assert(contains(m3, "framework files"))
+
+test "patches: apply refuses without an audited-ok verdict"
+    let m be ""
+    try
+        patches.apply("pt-1")
+    recover err
+        set m to err
+    assert(contains(m, "not audited-ok"))
+
+test "patches: audited-ok -> apply edits the real file, journaled"
+    write_file("./.tmp-tests/brain.md", "INSTRUCTIONS\nbe brief\n")
+    let a be patches.audit("pt-1", yes_auditor, "keep it small")
+    assert_eq(a["status"], "audited-ok")
+    assert(contains(a["audit_reasons"], "keep it small"), "el auditor recibe las guidelines")
+    let r be patches.apply("pt-1")
+    assert_eq(r["status"], "applied")
+    assert(contains(read_file("./.tmp-tests/brain.md"), "be brief and kind"))
+    let r2 be patches.apply("pt-1")
+    assert_eq(r2["status"], "applied", "re-apply es no-op idempotente")
+    let acts be apply(journal.entries(), (e) => e["action"])
+    assert(contains(acts, "patch-proposed"))
+    assert(contains(acts, "patch-audit"))
+    assert(contains(acts, "patch-applied"))
+
+test "patches: a rejecting auditor blocks apply"
+    patches.propose("pt-2", "./.tmp-tests/brain.md", "INSTRUCTIONS", "HACKED", "malicious-looking")
+    let a be patches.audit("pt-2", no_auditor, "")
+    assert_eq(a["status"], "audited-no")
+    let m be ""
+    try
+        patches.apply("pt-2")
+    recover err
+        set m to err
+    assert(contains(m, "not audited-ok"))
+
+test "patches: a human gate parks a durable step and interlocks apply"
+    patches.propose("pt-3", "./.tmp-tests/brain.md", "be brief and kind", "be verbose", "debatable change")
+    patches.audit("pt-3", yes_auditor, "")
+    let g1 be patches.gate("pt-3")
+    assert_eq(g1["synfide"], "wait", "sin humano, parkea")
+    -- audited-ok pero la gate existe y esta pendiente → apply se rehusa
+    let m be ""
+    try
+        patches.apply("pt-3")
+    recover err
+        set m to err
+    assert(contains(m, "human-gated"))
+    approvals.resolve("patch-pt-3", true, "joel")
+    let g2 be patches.gate("pt-3")
+    assert_eq(g2["status"], "approved")
+    let r be patches.apply("pt-3")
+    assert_eq(r["status"], "applied")
+    assert(contains(read_file("./.tmp-tests/brain.md"), "be verbose"))
+
+test "patches: si el archivo cambio y old ya no matchea, apply-failed queda registrado"
+    patches.propose("pt-4", "./.tmp-tests/brain.md", "text that is not there", "x", "stale patch")
+    patches.audit("pt-4", yes_auditor, "")
+    let m be ""
+    try
+        patches.apply("pt-4")
+    recover err
+        set m to err
+    assert(contains(m, "apply failed"))
+    assert_eq(patches.get("pt-4")["status"], "apply-failed")
+
+test "patches: old=nothing CREA el archivo nuevo (asi crece la app del usuario)"
+    -- nombre unico por corrida: el estado es fresco en cada run pero los
+    -- archivos de .tmp-tests persisten, y un create jamas pisa uno existente
+    let fresh be "./.tmp-tests/pages/presupuestos-" + text(now()) + ".html"
+    patches.propose("pt-5", fresh, nothing, "<h1>Presupuestos</h1>", "the agent grows the app")
+    let a be patches.audit("pt-5", yes_auditor, "")
+    assert(contains(patches.diff_text(patches.get("pt-5")), "+++ new file"))
+    let r be patches.apply("pt-5")
+    assert_eq(r["status"], "applied")
+    assert_eq(read_file(fresh), "<h1>Presupuestos</h1>")
+
+test "patches: un create JAMAS pisa un archivo existente"
+    patches.propose("pt-6", "./.tmp-tests/brain.md", nothing, "overwrite attempt", "must fail")
+    patches.audit("pt-6", yes_auditor, "")
+    let m be ""
+    try
+        patches.apply("pt-6")
+    recover err
+        set m to err
+    assert(contains(m, "never overwrites"))
+    assert_eq(patches.get("pt-6")["status"], "apply-failed")
+    assert(contains(read_file("./.tmp-tests/brain.md"), "be verbose"), "el archivo quedo intacto")
+
+test "patches: proposals() lista todo en orden de propuesta"
+    let ps be where(patches.proposals(), (p) => starts_with(p["id"], "pt-"))
+    assert_eq(length(ps), 6)
+    assert_eq(ps[0]["id"], "pt-1")
+    assert_eq(ps[5]["id"], "pt-6")
+
+-- ---------- auth: superadmin de primer arranque + sesiones ----------
+
+test "auth: el wizard exige el codigo de consola y crea el superadmin UNA vez"
+    assert(not ui.users_exist())
+    ui.setup_code()
+    let code be store.get("synfide-setup-code", nothing)
+    assert(code != nothing, "el codigo existe (solo en consola y store, jamas en HTTP)")
+    -- codigo equivocado -> 403, y el intento no quema el codigo real
+    assert_eq(status of ui.setup_submit({"name": "joel", "pass": "supersegura1", "pass2": "supersegura1", "code": "000000"}), 403)
+    -- validaciones con codigo correcto (fallar la validacion tampoco lo quema)
+    assert_eq(status of ui.setup_submit({"name": "joel", "pass": "corta", "pass2": "corta", "code": code}), 400)
+    assert_eq(status of ui.setup_submit({"name": "joel", "pass": "passwordAA1", "pass2": "passwordBB1", "code": code}), 400)
+    assert_eq(store.get("synfide-setup-code", nothing), code, "el codigo sobrevive a los fallos")
+    -- flujo feliz: crea, firma, y QUEMA el codigo
+    ui.setup_submit({"name": "joel", "pass": "supersegura1", "pass2": "supersegura1", "code": code})
+    assert(ui.users_exist())
+    assert_eq(store.get("synfide-setup-code", nothing), nothing, "codigo quemado tras el exito")
+    -- y el setup queda cerrado para siempre
+    assert_eq(status of ui.setup_submit({"name": "otro", "pass": "supersegura1", "pass2": "supersegura1", "code": "1"}), 403)
+    let m3 be ""
+    try
+        ui.create_first_admin("otro", "supersegura1", "supersegura1")
+    recover err
+        set m3 to err
+    assert(contains(m3, "already done"), "solo el PRIMER arranque crea cuentas")
+
+test "auth: el hash es argon2id y jamas se guarda la password en claro"
+    let raw be store.get("synfide-user:joel", nothing)
+    assert(starts_with(raw["phc"], "$argon2id$"))
+    assert(not contains(raw["phc"], "supersegura1"))
+
+test "auth: login correcto abre sesion; incorrecto no; logout la cierra"
+    assert_eq(ui.login_check("joel", "malamala99"), nothing)
+    assert_eq(ui.login_check("nadie", "supersegura1"), nothing)
+    let u be ui.login_check("joel", "supersegura1")
+    assert_eq(u["name"], "joel")
+    let sid be ui.session_start(u)
+    assert(length(sid) >= 16, "token() de sesion largo")
+    assert_eq(ui.session_user(sid)["name"], "joel")
+    ui.session_end(sid)
+    assert_eq(ui.session_user(sid), nothing)
+    assert_eq(ui.session_user(nothing), nothing)
+
+test "auth: guard deja pasar con sesion y redirige sin ella; guard_api da 401"
+    let sin be {"cookies": {}}
+    assert(ui.guard(sin) != nothing, "sin sesion -> redirect a /login")
+    assert_eq(status of ui.guard_api(sin), 401)
+    let u be ui.login_check("joel", "supersegura1")
+    let sid be ui.session_start(u)
+    let con be {"cookies": {"sid": sid}}
+    assert_eq(ui.guard(con), nothing, "con sesion pasa")
+    assert_eq(ui.guard_api(con), nothing)
+    -- authenticate: cookie -> user; nada -> nothing
+    assert_eq(ui.authenticate(nothing, con)["name"], "joel")
+    assert_eq(ui.authenticate(nothing, sin), nothing)
+
+test "auth: setup y login pages renderizan (password fields, JSON posts)"
+    let lp be ui.login_page()
+    assert(contains(lp, "type=\"password\""))
+    assert(contains(lp, "data-mode=\"login\""))
+    let r be ui.login_submit({"name": "joel", "pass": "malamala99"})
+    assert_eq(status of r, 403)
+
+-- ---------- env desde .env.example ----------
+
+test "env: env_names_from_example lista TODAS las variables documentadas"
+    write_file("./.tmp-tests/env.example", "# Synsema config\n# SYNSEMA_LLM_PROVIDER=anthropic\nANTHROPIC_API_KEY=\n#OPENAI_API_KEY=sk-...\n# not a var line\n# SYNSEMA_LLM_PROVIDER=repeat-must-dedupe\n")
+    let names be ui.env_names_from_example("./.tmp-tests/env.example")
+    assert_eq(names, ["SYNSEMA_LLM_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
+    assert_eq(ui.env_names_from_example("./.tmp-tests/no-existe"), [])
+
+-- ---------- decide por JSON (los botones del inbox) ----------
+
+test "inbox: resolve_json decide, journalea y rechaza cuerpos invalidos"
+    approvals.request("json-1", "ship it?")
+    assert_eq(status of ui.resolve_json(nothing), 400)
+    assert_eq(status of ui.resolve_json({"id": "no-existe", "approved": true, "who": "x"}), 404)
+    let r be ui.resolve_json({"id": "json-1", "approved": true, "who": "joel"})
+    assert_eq(r["ok"], true)
+    assert_eq(approvals.status("json-1")["status"], "approved")
 
 -- ---------- approvals con codigo (OTP por cualquier canal) ----------
 

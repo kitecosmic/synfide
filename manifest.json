@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.5",
+  "version": "v0.3.6",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -37,9 +37,19 @@
       "sha256": "1101270fbdeab320a45a8ad444b74924dd6a4a52c1b745fb9593711f36a2ef8e"
     },
     {
+      "src": "synfide/patches.syn",
+      "dest": "synfide/patches.syn",
+      "sha256": "7dcaae73c52edb8553fdd0f1d2cae7f633c65a7b1bb803890120db0e790b5e3a"
+    },
+    {
+      "src": "synfide/docs.syn",
+      "dest": "synfide/docs.syn",
+      "sha256": "eceb35f094dd751aa3933e6fedd46d03f4bb837c2b46a6e1591f28f08a1fae53"
+    },
+    {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "c536ee1e045a44dbd9f074cc59db6d86f2067b85c6c1de248e98292636944e54"
+      "sha256": "6af00b148eba8f48b6abebcaa8afa1ad578505cedc77e07ff4fe169db9d874e1"
     },
     {
       "src": "synfide/agent.syn",
@@ -47,14 +57,89 @@
       "sha256": "1ca077d150d76a9669775edaa5e9cc21f8631a8af8747cfefcb27c9eb9125084"
     },
     {
+      "src": "synfide/ui/layouts/base.html",
+      "dest": "synfide/ui/layouts/base.html",
+      "sha256": "28655b40e29def9ee0311a7376ff03b26f426c79b70b40b1eda805957f07f4fa"
+    },
+    {
+      "src": "synfide/ui/layouts/auth.html",
+      "dest": "synfide/ui/layouts/auth.html",
+      "sha256": "09369ad6c7c41036ac756e42df43318b6cfda72172ac1f981d4bff7470fa4c22"
+    },
+    {
+      "src": "synfide/ui/pages/setup.html",
+      "dest": "synfide/ui/pages/setup.html",
+      "sha256": "a1a22c2bcdcf2c76f7cd4e39e1f555b19e4cbf35dc3722dda2b92253ab212b34"
+    },
+    {
+      "src": "synfide/ui/pages/login.html",
+      "dest": "synfide/ui/pages/login.html",
+      "sha256": "d278dc7b398afe27f515dbba0baa66813eeebf7b92543d1e123638b4c1b61ab9"
+    },
+    {
+      "src": "synfide/ui/pages/home.html",
+      "dest": "synfide/ui/pages/home.html",
+      "sha256": "5a9dc4705b7ca1362859278268a771b04426b584ed62861eadd07f63344f2daf"
+    },
+    {
+      "src": "synfide/ui/pages/chat.html",
+      "dest": "synfide/ui/pages/chat.html",
+      "sha256": "261ba7bec88c4d786f4c59fe02792714c71a9c29ec3fd09ff4cd4a720f280fc0"
+    },
+    {
+      "src": "synfide/ui/pages/inbox.html",
+      "dest": "synfide/ui/pages/inbox.html",
+      "sha256": "01234fc5448541164539b316c2069225a3db2b5bfd92e7de058cc8ef721e1b16"
+    },
+    {
+      "src": "synfide/ui/pages/workflows.html",
+      "dest": "synfide/ui/pages/workflows.html",
+      "sha256": "5b4bc5426e55cd575780069e83a8854af0fd93793b0fda7e1e4f4c130af668f8"
+    },
+    {
+      "src": "synfide/ui/pages/journal.html",
+      "dest": "synfide/ui/pages/journal.html",
+      "sha256": "27e0baf9116b6819ec71ef62b82cc0dc0b7f67fed10da1b6197f204ea592465f"
+    },
+    {
+      "src": "synfide/ui/pages/patches.html",
+      "dest": "synfide/ui/pages/patches.html",
+      "sha256": "9bcacb47e4cc657120481e207f10e788548f3873efe31abdd3e4452388747c4f"
+    },
+    {
+      "src": "synfide/ui/pages/patch.html",
+      "dest": "synfide/ui/pages/patch.html",
+      "sha256": "52cfbc0869feef4802b9ad47918361dde8f0a2dbeeb5114b5e93f931360377cf"
+    },
+    {
+      "src": "synfide/ui/pages/env.html",
+      "dest": "synfide/ui/pages/env.html",
+      "sha256": "53276aa773ef7b6a7b07b8f183047267ea537220617f2f41b5598f3c5ff1d679"
+    },
+    {
+      "src": "synfide/ui/pages/endpoints.html",
+      "dest": "synfide/ui/pages/endpoints.html",
+      "sha256": "713adf2be733d538bbac64776264420190ee7d62371a2d61ae159d40fd870a5d"
+    },
+    {
+      "src": "synfide/ui/static/synfide.css",
+      "dest": "synfide/ui/static/synfide.css",
+      "sha256": "fc040ee290e489aa3600bb05adf0d9f88331f9d8884c927819564c970402d55c"
+    },
+    {
+      "src": "synfide/ui/static/synfide.js",
+      "dest": "synfide/ui/static/synfide.js",
+      "sha256": "f417be3d787e3b5de7e0d99534e96036791021aef204e0ed149e8adc78ee44d0"
+    },
+    {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "0f01c0f5fc3473be7aaca89dc73693d917a789044412f36a9f93c1feaf76236b"
+      "sha256": "1a307d64ede4ad967a7ace6a69c1e40566726f34c2c21d746ab145ca8acc1183"
     },
     {
       "src": "scaffold/AGENTS.md",
       "dest": "AGENTS.md",
-      "sha256": "bdb32294e55a42ca6ebecf03923c7583ac2332778ccbec24144bb68b70d0aee7"
+      "sha256": "f60e640d4b56467ab8de2dd7f36948a36aa53295b8392302f699c2438cbd8429"
     },
     {
       "src": "scaffold/app.syn",
@@ -64,17 +149,17 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "d50122eac7f06051379586536a3fcdb7d1ef1a5ce16d248c47d568c9acdeedf1"
+      "sha256": "3591d4beca1de827b7c05fc2075c3f57a5705d5c5d566c923a9979f5dd95eb18"
     },
     {
       "src": "scaffold/console.syn",
       "dest": "console.syn",
-      "sha256": "f4bc1b74367279f2dff75c8e549d4f90b29faf4392b1db4301a523de48bd5253"
+      "sha256": "ea61c4cad12414ec3d7c66daf42898bee4efcc10c88b0baebc0b9eece25c6793"
     },
     {
       "src": "test_synfide.syn",
       "dest": "test_synfide.syn",
-      "sha256": "e20075ffb8ff53ff7bba2d2f145093d00a65403fa007410c39ea7fd2a22ab5b9"
+      "sha256": "fd68c2f47092c44f6e68c3387614e243b83f4dd240b0aabf50168900e5703efd"
     }
   ]
 }

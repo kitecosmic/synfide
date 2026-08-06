@@ -1,0 +1,16 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Patch { id }</h3>
+  <table class="fields">
+    <tr><th>file</th><td>{ path }</td></tr>
+    <tr><th>status</th><td class="{ cls }">{ status }</td></tr>
+    <tr><th>why</th><td>{ why }</td></tr>
+    { when has_audit }<tr><th>auditor</th><td>{ audit_reasons }</td></tr>{ end }
+    { when has_gate }<tr><th>human gate</th><td>{ gate }</td></tr>{ end }
+    { when has_error }<tr><th>apply error</th><td>{ apply_error }</td></tr>{ end }
+  </table>
+</div>
+<div class="module">
+  <h3 class="caption">Change</h3>
+  <pre class="diff">{ diff }</pre>
+</div>

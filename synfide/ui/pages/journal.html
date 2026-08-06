@@ -1,0 +1,12 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Journal &middot; last { shown_n } of { journal_n }</h3>
+  { when has_journal }
+  <div class="tbl"><table>
+    <tr><th>#</th><th>actor</th><th>action</th><th>detail</th></tr>
+  { each e in journal }<tr><td>{ e.n }</td><td>{ e.actor }</td><td>{ e.action }</td><td>{ e.detail }</td></tr>
+  { end }</table></div>
+  { otherwise }
+  <p class="empty">No actions recorded yet. Every tool call, approval and patch lands here.</p>
+  { end }
+</div>

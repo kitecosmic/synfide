@@ -9,6 +9,10 @@ language). Before writing or changing code here:
 2. **Learn the language** from the Synsema skill and docs MCP:
    `curl -sL https://raw.githubusercontent.com/kitecosmic/synsema/main/install-skill.sh | bash`
    `claude mcp add --transport http synsema-docs https://docs.synsema.com/mcp`
+   (The app's RUNTIME agent gets the same docs through `synfide/docs.syn` —
+   `serve.syn` wires them as `synsema_docs` / `synsema_page` / `synsema_verify`
+   tools, so it can consult the language reference and sandbox-verify `.syn`
+   snippets before proposing them.)
 
 House rules (the GUIDE expands on all of them):
 - Never edit files under `synfide/` — extend by writing your own `.syn` files.

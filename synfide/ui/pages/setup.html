@@ -1,0 +1,15 @@
+{ layout "synfide/ui/layouts/auth.html" }
+<h1>First run</h1>
+<p class="auth-note">No accounts exist yet. Create the <b>superadmin</b> — the password is
+argon2id-hashed on the server and never stored raw.</p>
+<form class="authform" data-mode="setup">
+  <label>Username <input name="name" autocomplete="username" autofocus></label>
+  <label>Password <span class="hint">(min 8 characters)</span> <input type="password" name="pass" autocomplete="new-password"></label>
+  <label>Repeat password <input type="password" name="pass2" autocomplete="new-password"></label>
+  <label>Setup code <span class="hint">(printed on the SERVER terminal — proves you operate this machine)</span>
+    <input name="code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></label>
+  <button class="ok">Create superadmin &amp; sign in</button>
+  <p class="envmsg" data-msg></p>
+</form>
+<noscript><p class="auth-note">This wizard needs JavaScript. Without it, create the account from the
+server console instead (see synfide/GUIDE.md).</p></noscript>

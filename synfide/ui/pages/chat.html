@@ -1,0 +1,16 @@
+{ layout "synfide/ui/layouts/base.html" }
+{ when show_banner }
+<p class="warn-banner">No LLM provider configured &mdash; answers are placeholders. Copy .env.example to .env, pick a provider, paste its key, restart the server.</p>
+{ end }
+<div class="chat">
+{ when has_msgs }
+{ each m in messages }<div class="msg { m.role }"><span>{ m.text }</span></div>
+{ end }
+{ otherwise }
+<p class="empty">Say hello &mdash; or ask your agent to DO something. Risky actions park in the inbox for a human first.</p>
+{ end }
+</div>
+<form class="send" action="/chat/send" method="get"><div>
+  <textarea name="message" rows="1" placeholder="Ask, or ask for an action&hellip; (Enter sends &middot; Shift+Enter = new line)" autofocus autocomplete="off"></textarea>
+  <button class="ok">Send</button>
+</div></form>

@@ -1,0 +1,57 @@
+-- Synfide dev tool · simulate `synsema init --synfide` from the LOCAL repo —
+-- no GitHub, no release, pure Synsema.
+--
+-- The real installer only downloads from the published GitHub release (the
+-- engine has no local override), so THIS is how you test what a user would
+-- receive BEFORE pushing: it verifies every manifest hash against the working
+-- tree, then copies src -> dest into a SIBLING directory — always OUTSIDE the
+-- repo, so nothing installed can ever leak into git:
+--
+--     synsema run scripts/install_local.syn
+--     cd ../synfide-local-test
+--     SYNSEMA_STATE_DIR=$(mktemp -d) SYNSEMA_AUDIT_DIR=$(mktemp -d) synsema test test_synfide.syn
+--     synsema serve serve.syn        # click through the admin
+--
+-- A stale hash (file changed, manifest not regenerated) fails loudly — run
+-- scripts/update_manifest.syn first. A listed file that's missing fails too,
+-- so a forgotten manifest entry can't ship. Run from the REPO ROOT.
+intent: "Install the local working tree into ../synfide-local-test, verifying the manifest"
+
+require file.read("./*")
+require file("../synfide-local-test/*")
+require stdout
+
+let DEST be "../synfide-local-test/"
+
+let manifest be json_decode(read_file("manifest.json"))
+let files be manifest["files"]
+
+-- 1. verify EVERYTHING first — install nothing on a dirty manifest
+let stale be []
+let i be 0
+while i < length(files)
+    let f be files[i]
+    when not file_exists(f["src"])
+        raise("MISSING: " + f["src"] + " is in the manifest but not in the repo")
+    let digest be decode(sha256(read_file_bytes(f["src"])), "hex")
+    when digest != f["sha256"]
+        set stale to stale + [f["src"]]
+    set i to i + 1
+when length(stale) > 0
+    print("STALE manifest hashes (run scripts/update_manifest.syn):")
+    let j be 0
+    while j < length(stale)
+        print("  " + stale[j])
+        set j to j + 1
+    raise("manifest out of date: " + text(length(stale)) + " file(s)")
+
+-- 2. copy byte-exact, then stamp the version — same layout init creates
+set i to 0
+while i < length(files)
+    let f be files[i]
+    write_file(DEST + f["dest"], read_file_bytes(f["src"]))
+    set i to i + 1
+write_file(DEST + "synfide/VERSION", manifest["version"] + "\n")
+
+print("installed " + manifest["version"] + " (" + text(length(files)) + " files) -> " + DEST)
+print("next: cd ../synfide-local-test && synsema test test_synfide.syn && synsema serve serve.syn")

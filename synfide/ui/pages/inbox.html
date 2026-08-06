@@ -1,0 +1,18 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Waiting for you</h3>
+  { when has_pending }
+  { each a in approvals }<div class="card">
+    <div class="{ a.cls }">{ a.message }</div>
+    <span class="aid">{ a.id }</span>
+    <form class="decide" data-id="{ a.id }">
+      <input name="who" placeholder="who decides (optional)" value="">
+      <button name="approved" value="yes" class="ok">Approve</button>
+      <button name="approved" value="no" class="no">Deny</button>
+    </form>
+  </div>
+  { end }
+  { otherwise }
+  <p class="empty">Nothing waits for a human. Actions that need approval park here &mdash; and finish by themselves once you decide.</p>
+  { end }
+</div>

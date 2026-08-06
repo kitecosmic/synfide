@@ -1,0 +1,12 @@
+{ layout "synfide/ui/layouts/base.html" }
+<div class="module">
+  <h3 class="caption">Endpoints &middot; the usable API</h3>
+  { when has_docs }
+  <div class="eplist">
+  { each e in docs }<pre class="ep-item">{ e }</pre>
+  { end }</div>
+  { otherwise }
+  <p class="empty">No endpoints documented. Pass your API_DOCS list to ui.endpoints_page([...]) in your route.</p>
+  { end }
+  <p class="prose">Agents get this same list as plain text at <a href="/llms.txt">/llms.txt</a>. Browser pages (this admin) are deliberately not listed.</p>
+</div>
