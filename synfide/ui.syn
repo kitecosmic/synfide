@@ -731,6 +731,49 @@ task ui_asset(name)
         give with_header(respond(read_file("./synfide/ui/static/synfide.js"), "text/javascript"), "Cache-Control", "max-age=300")
     give not_found("no such asset: " + esc(name))
 
+-- static_file(dir, relpath) → serve one file from a user-content directory
+-- (the agent's ./site workspace, an uploads folder…) through a DECLARED
+-- route — an engine `static` mount can't work behind the catch-alls
+-- (declared routes always win). Traversal-proof (backslashes normalized,
+-- any ".." refused), "" and trailing "/" resolve to index.html, content
+-- type by extension, binary-safe for images. The entry grants the dir's
+-- file scope (e.g. `require file("./site/*")`) and wires:
+--     route "GET /site"        give ui.static_file("./site", "")
+--     route "GET /site/*path"  give ui.static_file("./site", params.path)
+export task static_file(dir, relpath)
+    let p be replace_text(text(relpath), "\\", "/")
+    when contains(p, "..")
+        give not_found("path refused")
+    when p == "" or ends_with(p, "/")
+        set p to p + "index.html"
+    let full be dir + "/" + p
+    when not file_exists(full)
+        give not_found("no such file: " + esc(p))
+    let ext be lower(split(p, ".")[length(split(p, ".")) - 1])
+    when ext == "html"
+        give html(read_file(full))
+    when ext == "css"
+        give respond(read_file(full), "text/css; charset=utf-8")
+    when ext == "js"
+        give respond(read_file(full), "text/javascript; charset=utf-8")
+    when ext == "json"
+        give respond(read_file(full), "application/json")
+    when ext == "svg"
+        give respond(read_file(full), "image/svg+xml")
+    when ext == "txt"
+        give respond(read_file(full), "text/plain; charset=utf-8")
+    when ext == "png"
+        give binary(read_file_bytes(full), "image/png")
+    when ext == "jpg" or ext == "jpeg"
+        give binary(read_file_bytes(full), "image/jpeg")
+    when ext == "gif"
+        give binary(read_file_bytes(full), "image/gif")
+    when ext == "ico"
+        give binary(read_file_bytes(full), "image/x-icon")
+    when ext == "webp"
+        give binary(read_file_bytes(full), "image/webp")
+    give respond(read_file(full), "application/octet-stream")
+
 -- admin_get(path, request, query, cfg) → the full GET surface.
 export task admin_get(path, request, query, cfg)
     let p be text(path)

@@ -417,6 +417,59 @@ test "operator: offline degrada al placeholder igual que respond, con dominio va
     let out be agent.operator("hola", {}, [], "", "", 2)
     assert(contains(out, "no llm provider"), "offline → placeholder del runtime: " + out)
 
+-- ---------- patch flow (las manos del agente) ----------
+
+test "patch_flow: offline el auditor LLM no aprueba — el patch muere ANTES de cualquier workflow"
+    let out be agent.patch_flow("./.tmp-tests/never.html", nothing, "<h1>x</h1>", "probe")
+    assert(contains(out, "REJECTED"), "sin auditor real no se avanza: " + out)
+    assert_eq(length(durable.workflows("patch-p")), 0, "ningun workflow de patch arranco")
+
+task approving_auditor(patch, guidelines)
+    give {"approved": true, "reasons": "test: cambio chico y seguro"}
+
+test "patch loop completo: propose -> audit ok -> gate en el inbox -> aprobar -> apply escribe el archivo"
+    patches.propose("e2e", "./.tmp-tests/site-e2e.html", nothing, "<h1>hola sitio</h1>", "create the page")
+    patches.audit("e2e", approving_auditor, "")
+    assert_eq(patches.get("e2e")["status"], "audited-ok")
+    -- el workflow parquea en el gate humano
+    let r1 be durable.run("patch-e2e", agent.patch_steps(), {"id": "e2e"})
+    assert_eq(r1["status"], "waiting")
+    let pend be apply(approvals.pending(), (a) => a["id"])
+    assert(contains(pend, "patch-e2e"), "el gate esta en el inbox de aprobaciones")
+    -- el humano aprueba -> el (heartbeat) re-run aplica DE VERDAD
+    approvals.resolve("patch-e2e", true, "tester")
+    let r2 be durable.run("patch-e2e", agent.patch_steps(), {"id": "e2e"})
+    assert_eq(r2["status"], "done")
+    assert_eq(patches.get("e2e")["status"], "applied")
+    assert(contains(read_file("./.tmp-tests/site-e2e.html"), "hola sitio"), "el archivo REAL existe con el contenido")
+
+test "patch loop: un gate DENEGADO nunca llega al filesystem"
+    patches.propose("e2e-no", "./.tmp-tests/site-denied.html", nothing, "<h1>no</h1>", "create denied page")
+    patches.audit("e2e-no", approving_auditor, "")
+    durable.run("patch-e2e-no", agent.patch_steps(), {"id": "e2e-no"})
+    approvals.resolve("patch-e2e-no", false, "tester")
+    let r be durable.run("patch-e2e-no", agent.patch_steps(), {"id": "e2e-no"})
+    assert_eq(r["status"], "failed", "gate denegado -> el step falla, no aplica")
+    assert(not file_exists("./.tmp-tests/site-denied.html"), "el filesystem quedo intacto")
+
+-- ---------- static_file (el sitio del agente, servido en vivo) ----------
+
+test "static_file: sirve html/css con su content-type, index por default, y 404 en lo ausente"
+    write_file("./.tmp-tests/index.html", "<h1>portada</h1>")
+    write_file("./.tmp-tests/style.css", "body { color: blue }")
+    let home be ui.static_file("./.tmp-tests", "")
+    assert(contains(body of home, "portada"), "'' resuelve a index.html")
+    let css be ui.static_file("./.tmp-tests", "style.css")
+    assert(contains(body of css, "color: blue"))
+    let missing be ui.static_file("./.tmp-tests", "nope.html")
+    assert_eq(status of missing, 404)
+
+test "static_file: el traversal se rechaza, tambien con backslashes"
+    let a be ui.static_file("./.tmp-tests", "../serve.syn")
+    assert_eq(status of a, 404)
+    let b be ui.static_file("./.tmp-tests", "..\\..\\.env")
+    assert_eq(status of b, 404)
+
 -- ---------- limits ----------
 
 test "limits: charge accumulates, within cuts, reset forgets"

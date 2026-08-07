@@ -152,7 +152,25 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   dispatcher's default responder when CONFIG has none. `respond()` stays
   baseline-free for agents that shouldn't carry docs tools (a future
   customer-facing agent). Also exported: `base_catalog()`,
-  `base_instructions()`, `operator_tools/operator_catalog(domain)`.
+  `base_instructions()`, `operator_tools/operator_catalog(domain)`. The
+  baseline instructions demand AUTONOMY (build now, report what you DID,
+  never paste project code into the chat as the deliverable) — and when the
+  domain wires a `propose_patch` tool, operator() appends the patching
+  discipline automatically (never mention tools that don't exist).
+- **`agent.patch_flow(path, old, new, why, guidelines = "")` — the agent's
+  HANDS, safely.** One call runs the whole chain for one file change:
+  `patches.propose` (records intent, touches nothing) → `patches.audit` with
+  the adversarial `llm_auditor` (rejected → the flow STOPS and returns the
+  reasons to the model) → a durable workflow (`"patch-<id>"`) parks at the
+  human gate in the approvals inbox, diff included. The entry's heartbeat
+  ticks `{"prefix": "patch-", "steps": agent.patch_steps()}`, so a human
+  approval auto-applies with the entry's ambient file scope. The FLOW is
+  framework-owned; the POWER stays in the entry: a thin wrapper tool
+  declares `memory`/`time`/`llm` (call_tool least-privilege) and the entry
+  grants the file scope patches may land in (scaffold default:
+  `require file("./site/*")`). An empty `old` counts as CREATE (models say
+  "" where the contract says nothing). `agent.patches_summary()` → one line
+  per proposal for the agent's list tool.
 
 ### patches — self-modification with a seatbelt (needs: memory, time; apply: file.write scope; llm_auditor: llm)
 - The loop the framework packages: an agent PROPOSES an exact change to one of
@@ -283,6 +301,13 @@ This file covers what those do NOT: the framework's packages, contracts and rule
 - To restyle: don't edit `synfide/` — copy the template(s) into your folder,
   mount your own static dir, render your copies from your own routes
   (`render()` is a language builtin; the framework adds nothing in between).
+- **`ui.static_file(dir, relpath)` — user content served through a declared
+  route** (an engine `static` mount can't work behind the catch-alls).
+  Traversal-proof (backslashes normalized, `..` refused), `""`/trailing-`/`
+  → `index.html`, content type by extension, binary-safe (png/jpg/ico/webp
+  via `read_file_bytes` + `binary()`). The scaffold wires `GET /site` +
+  `GET /site/*path` over `./site` — the agent's patch workspace is LIVE the
+  moment a patch applies, no entry edit, no restart.
 - `ui.resolve(id, approved_text, who_text)` → decision + redirect (route it at
   `GET /inbox/ui/decide` with `query.id/approved/who`).
 - `ui.chat_send(message)` (plain LLM) / `ui.chat_send_with(message, responder)`

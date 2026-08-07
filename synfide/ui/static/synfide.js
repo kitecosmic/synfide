@@ -116,12 +116,13 @@
       };
       t.addEventListener('input', grow);
       grow();
-      // The send is a full navigation the agent may take SECONDS to answer.
-      // One flag stops the double-send (Enter again while loading used to
-      // submit twice); the composer goes readonly (a readonly field still
-      // submits its value — a disabled one would NOT); and the user's bubble
-      // plus an animated "thinking" bubble appear instantly so the wait
-      // reads as the agent working, never as a hang.
+      // The agent may take SECONDS to answer, so the send goes out as a
+      // background fetch — the page does NOT navigate while it thinks (no
+      // browser spinner, no reload feel). One flag stops the double-send
+      // (Enter again while loading used to submit twice), the composer
+      // locks, and the user's bubble plus an animated "thinking" bubble
+      // appear instantly. When the answer lands, one quick reload paints
+      // the real history. Without JS the form still navigates natively.
       var sending = false;
       var go = function () {
         if (sending || !t.value.trim()) return;
@@ -143,7 +144,9 @@
           chat.appendChild(think);
           window.scrollTo(0, document.body.scrollHeight);
         }
-        t.form.submit();
+        fetch(t.form.action + '?message=' + encodeURIComponent(t.value))
+          .then(function () { location.reload(); })
+          .catch(function () { location.reload(); });
       };
       t.form.addEventListener('submit', function (e) { e.preventDefault(); go(); });
       t.addEventListener('keydown', function (e) {

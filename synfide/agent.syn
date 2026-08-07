@@ -15,6 +15,9 @@
 
 use "./journal.syn" as journal
 use "./docs.syn" as docs
+use "./store.syn" as store
+use "./patches.syn" as patches
+use "./durable.syn" as durable
 
 -- respond(question, tools, catalog, context, max_steps) → the agent's final text.
 --   tools    — the allow-list: {"name": task}
@@ -93,7 +96,61 @@ export task base_catalog()
     ]
 
 export task base_instructions()
-    give "For anything involving Synsema code (.syn) you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before answering or proposing them."
+    give "You are an AUTONOMOUS operator, not a consultant: when the human asks for something buildable, BUILD IT in this same turn — decide, use your tools as many times as it takes, and report what you DID, never a plan you are about to start. Do not ask permission to begin (the system's approval gates are the permission), do not end with a question you could answer by calling a tool, and never paste project code into the chat as the deliverable. App logic is written in Synsema (.syn); HTML/CSS/JS only for the browser side. For anything involving Synsema code you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before shipping them."
+
+-- The extra paragraph operator() appends ONLY when the entry wired a
+-- propose_patch tool — instructions must never mention tools that don't
+-- exist (the model would call them into the void).
+task patch_instructions()
+    give "You change this app's REAL files with propose_patch (create or edit), one file per patch, code verified with synsema_verify FIRST. Each patch is audited automatically and then waits for the human in their Approvals inbox — once approved it applies to disk BY ITSELF (no further action from you or them). So never say 'I can't create files' and never ask 'do you want me to patch it?' — patch it. Use list_patches to see what was approved, applied or rejected instead of asking the human what happened."
+
+-- ---------- the patch flow (propose → audit → human gate → auto-apply) ----------
+--
+-- The framework owns the FLOW; the entry owns the POWER. patch_flow() runs
+-- the whole safe chain for one change: propose (records intent, touches no
+-- file), audit by the adversarial LLM auditor (rejected → the patch dies
+-- here, the agent gets the reasons), then a durable workflow parks at the
+-- human gate in the approvals inbox — the SAME inbox as actions, diff
+-- included. The entry's heartbeat ticks the "patch-" prefix with
+-- patch_steps(), so approval auto-applies with the entry's ambient file
+-- scope. The entry decides that scope (e.g. `require file("./site/*")`) —
+-- deny-by-default stays with the user, and patches.syn refuses synfide/
+-- no matter what.
+
+task patch_gate_step(ctx)
+    give patches.gate(ctx["id"])
+
+task patch_apply_step(ctx)
+    let r be patches.apply(ctx["id"])
+    give "applied: " + text(r["path"])
+
+export task patch_steps()
+    give [
+        {"name": "gate", "run": patch_gate_step},
+        {"name": "apply", "run": patch_apply_step}
+    ]
+
+export task patch_flow(path, old, new, why, guidelines = "")
+    -- models say "" where the contract says nothing: an empty `old` IS a create
+    let o be old
+    when o == ""
+        set o to nothing
+    let id be "p" + text(store.put("synfide-patch-n", store.get("synfide-patch-n", 0) + 1))
+    patches.propose(id, path, o, new, why)
+    patches.audit(id, patches.llm_auditor, guidelines)
+    let p be patches.get(id)
+    when p["status"] != "audited-ok"
+        give "patch " + id + " (" + text(p["path"]) + ") REJECTED by the auditor: " + text(p["audit_reasons"]) + " — fix the concern and propose again"
+    let r be durable.run("patch-" + id, patch_steps(), {"id": id})
+    give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human in the Approvals inbox; once approved it applies to disk by itself. Status: " + r["status"]
+
+-- patches_summary() → one line per proposal, newest last — the agent's eyes
+-- on what got approved, applied or rejected.
+export task patches_summary()
+    let ps be patches.proposals()
+    when length(ps) == 0
+        give "no patches proposed yet"
+    give join(apply(ps, (p) => text(p["id"]) + " (" + text(p["path"]) + "): " + text(p["status"]) + " — " + text(p["why"])), "\n")
 
 -- operator_tools/operator_catalog(domain) → baseline merged UNDER the user's
 -- domain: on a name collision the domain entry wins and the baseline's twin
@@ -120,9 +177,15 @@ export task operator_catalog(domain_catalog)
 -- history, max_steps) → respond() over the user's domain PLUS the framework
 -- baseline. This is what the dashboard chat should run: the entry passes only
 -- its domain and the framework guarantees the floor — with no domain at all
--- ({}, [], "") it is still an agent that can learn Synsema.
-export task operator(question, domain_tools, domain_catalog, domain_instructions, history, max_steps = 4)
+-- ({}, [], "") it is still an agent that can learn Synsema. max_steps
+-- defaults HIGH (12): an autonomous build (docs → write → verify → patch,
+-- times several files) eats steps fast, and a step budget that forces the
+-- agent to stop mid-build reads as laziness to the human.
+export task operator(question, domain_tools, domain_catalog, domain_instructions, history, max_steps = 12)
+    let tools be operator_tools(domain_tools)
     let instr be base_instructions()
+    when contains(tools, "propose_patch")
+        set instr to instr + "\n" + patch_instructions()
     when text(domain_instructions) != ""
         set instr to text(domain_instructions) + "\n" + instr
-    give respond(question, operator_tools(domain_tools), operator_catalog(domain_catalog), instr + "\n--- conversation so far ---\n" + text(history), max_steps)
+    give respond(question, tools, operator_catalog(domain_catalog), instr + "\n--- conversation so far ---\n" + text(history), max_steps)

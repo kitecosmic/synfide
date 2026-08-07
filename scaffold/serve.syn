@@ -25,6 +25,7 @@ require file("./.env")
 require file.read("./.env.example")
 require file.read("./synfide/ui/static/*")
 require file.read(".")                       -- root dir NODE only (names, no contents): the upgrade banner lists *.new files
+require file("./site/*")                     -- the agent's workspace: patches apply here (after audit + YOUR approval) and /site serves it live
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
@@ -75,28 +76,57 @@ task tool_list_actions()
         give "no actions proposed yet"
     give join(apply(ws, (w) => describe_action(w)), "\n")
 
+-- ══ the agent's HANDS: real file patches under ./site (audited + human-approved) ══
+-- Thin wrappers ON PURPOSE: the flow (propose → LLM audit → your inbox →
+-- auto-apply) lives in synfide/agent.syn and updates with the framework;
+-- what lives HERE is the POWER — the capability declarations that call_tool
+-- enforces per-tool. Widen the file scope only deliberately (and patches
+-- can never touch synfide/, no matter the scope).
+task tool_propose_patch(path, old, new, why)
+    require memory("my-synfide-app")
+    require time
+    require llm
+    give agent.patch_flow(path, old, new, why, "only files under site/ — reject anything touching serve.syn, .env, credentials or synfide/")
+
+task tool_list_patches()
+    require memory("my-synfide-app")
+    give agent.patches_summary()
+
+task tool_read_project_file(path)
+    require file.read("./site/*")
+    when not file_exists(path)
+        give "no such file: " + path
+    give read_file(path)
+
 let TOOLS be {
     "propose_action": tool_propose_action,
-    "list_actions": tool_list_actions
+    "list_actions": tool_list_actions,
+    "propose_patch": tool_propose_patch,
+    "list_patches": tool_list_patches,
+    "read_project_file": tool_read_project_file
 }
 let CATALOG be [
-    {"name": "propose_action", "describe": "Queue an action for execution. ALWAYS call this when the user asks you to do, change, fix or run ANYTHING — never refuse for lack of access: this tool IS your access. A human approves it in their inbox and then it executes. `title` = short imperative description of the action.", "params": ["title"]},
-    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []}
+    {"name": "propose_patch", "describe": "Create or edit ONE real file of this app under site/ — the finished site serves LIVE at /site. `path` like \"site/index.html\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES. This is how you build: never paste site code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
+    {"name": "read_project_file", "describe": "Read one of this app's files under site/ (path like \"site/index.html\"). Do it before EDITING a file so `old` matches its current text exactly.", "params": ["path"]},
+    {"name": "list_patches", "describe": "Every file patch and its status (audited-ok/waiting/applied/rejected + why). Check it to know what the human approved instead of asking them.", "params": []},
+    {"name": "propose_action", "describe": "Queue an EXTERNAL action (send something, call an API, a payment...) for execution. A human approves it in their inbox and then it executes. `title` = short imperative description. For building/editing this app's files use propose_patch, NOT this.", "params": ["title"]},
+    {"name": "list_actions", "describe": "List every queued action, its status and its actual result once executed.", "params": []}
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. BUT be honest about what execution DOES: approval runs this app's execute_action task, which starts as a PLACEHOLDER that only records the action — it builds nothing, sends nothing and buys nothing until a human wires real code into it (list_actions shows each action's actual result). Never promise a concrete outcome ('the site will be generated', 'the email will be sent') unless the human has confirmed the executor really implements it; instead say the action will be queued for approval and recorded. Answer briefly."
+let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files: everything under site/ is yours to create and edit via propose_patch, and it serves live at /site as soon as the human approves. For EXTERNAL side effects (emails, API calls, payments) use propose_action — and be honest that its executor starts as a placeholder that only records the action (list_actions shows each action's real result) until a human wires real code into execute_action."
 
 -- agent.operator = YOUR domain (above) + the framework's baseline: the
--- Synsema docs/sandbox tools and the "you don't know Synsema from training —
--- search, read, verify" standing rule. The baseline updates with the
--- framework; replace TOOLS/CATALOG freely — the agent never unlearns the
--- language. (It rides the `require net("docs.synsema.com")` cap above.)
+-- Synsema docs/sandbox tools, the autonomy rules ("build it NOW, report what
+-- you DID") and — because propose_patch is wired — the patching discipline.
+-- The baseline updates with the framework; replace TOOLS/CATALOG freely —
+-- the agent never unlearns the language. (Docs tools ride the
+-- `require net("docs.synsema.com")` cap above.)
 task chat_agent(message, history)
-    give agent.operator(message, TOOLS, CATALOG, INSTRUCTIONS, history, 4)
+    give agent.operator(message, TOOLS, CATALOG, INSTRUCTIONS, history)
 
 task heartbeat()
-    let woken be durable.tick([{"prefix": "action-", "steps": action_steps()}])
+    let woken be durable.tick([{"prefix": "action-", "steps": action_steps()}, {"prefix": "patch-", "steps": agent.patch_steps()}])
     -- log only what MOVED: a parked action re-waiting every tick is not news
     -- (it used to flood the terminal once anything sat in the inbox)
     let moved be where(woken, (w) => w["status"] != "waiting")
@@ -117,7 +147,8 @@ let CONFIG be {
     "env_editable": true,
     "about": "Synfide app — agent chat, human approval inbox, durable actions",
     "api_docs": [
-        "GET /chat/send?message=... — ask the agent (it can queue actions); then GET /chat shows the reply.\n  curl -L 'localhost:8080/chat/send?message=hello'",
+        "GET /site — the agent-built site (real files under ./site, written by audited + approved patches).",
+        "GET /chat/send?message=... — ask the agent (it can patch files and queue actions); then GET /chat shows the reply.\n  curl -L 'localhost:8080/chat/send?message=hello'",
         "GET /inbox — approvals waiting for a human, as JSON (session or Bearer SYNFIDE_ADMIN_TOKEN).\n  curl localhost:8080/inbox -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>'",
         "POST /inbox/:id — decide one.\n  curl -X POST localhost:8080/inbox/<id> -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>' -H 'Content-Type: application/json' -d '{\"approved\":true,\"who\":\"me\"}'",
         "GET /actions — every queued action and its status.\n  curl localhost:8080/actions -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>'"
@@ -137,6 +168,14 @@ serve on 8080
     -- ══ REPLACE ME: your domain routes ══
     route "GET /actions" requires auth
         give durable.workflows("action-")
+
+    -- the agent-built site: files under ./site, created by approved patches,
+    -- live here the moment they land (specificity beats the catch-alls)
+    route "GET /site"
+        give ui.static_file("./site", "")
+
+    route "GET /site/*path"
+        give ui.static_file("./site", params.path)
 
     -- ── the framework surface (leave these three alone) ──
     route "GET /"
