@@ -308,6 +308,18 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   via `read_file_bytes` + `binary()`). The scaffold wires `GET /site` +
   `GET /site/*path` over `./site` — the agent's patch workspace is LIVE the
   moment a patch applies, no entry edit, no restart.
+  `ui.preview_file(dir, relpath, max_chars = 4000)` returns what static_file
+  would SERVE as agent-context text (truncated with a note, binary reported
+  not dumped, 404 as text) — wire it as the agent's `preview_page` tool so
+  it checks its own work.
+- **Bulk approve:** the inbox has "Approve all (n)" — the batch case is real
+  (one build = several patches; one click each kills the loop). Served by
+  `ui.resolve_all_json(body)` at `POST /inbox/ui/decide_all` (dispatcher
+  wires it): every decision individually journaled, and CODE-PROTECTED
+  approvals are SKIPPED, never bulk-approved.
+- **`journal.tail(k)`** → the last k journal entries as compact one-per-line
+  text — the agent's other eye (wire as a `journal_tail` tool; needs the
+  entry's `memory` cap in the wrapper).
 - `ui.resolve(id, approved_text, who_text)` → decision + redirect (route it at
   `GET /inbox/ui/decide` with `query.id/approved/who`).
 - `ui.chat_send(message)` (plain LLM) / `ui.chat_send_with(message, responder)`

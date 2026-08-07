@@ -32,6 +32,7 @@ use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
+use "./synfide/journal.syn" as journal
 
 -- ══════════════════ REPLACE ME: your executor ══════════════════
 -- Runs AFTER a human approves an action. Put your real code here: call your
@@ -98,23 +99,36 @@ task tool_read_project_file(path)
         give "no such file: " + path
     give read_file(path)
 
+-- ══ the agent's EYES: what got served, what actually happened ══
+task tool_preview_page(path)
+    require file.read("./site/*")
+    give ui.preview_file("./site", path)
+
+task tool_journal_tail()
+    require memory("my-synfide-app")
+    give journal.tail(30)
+
 let TOOLS be {
     "propose_action": tool_propose_action,
     "list_actions": tool_list_actions,
     "propose_patch": tool_propose_patch,
     "list_patches": tool_list_patches,
-    "read_project_file": tool_read_project_file
+    "read_project_file": tool_read_project_file,
+    "preview_page": tool_preview_page,
+    "journal_tail": tool_journal_tail
 }
 let CATALOG be [
     {"name": "propose_patch", "describe": "Create or edit ONE real file of this app under site/ — the finished site serves LIVE at /site. `path` like \"site/index.html\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES. This is how you build: never paste site code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
     {"name": "read_project_file", "describe": "Read one of this app's files under site/ (path like \"site/index.html\"). Do it before EDITING a file so `old` matches its current text exactly.", "params": ["path"]},
     {"name": "list_patches", "describe": "Every file patch and its status (audited-ok/waiting/applied/rejected + why). Check it to know what the human approved instead of asking them.", "params": []},
+    {"name": "preview_page", "describe": "See EXACTLY what /site serves for a path (\"\" = the homepage, \"style.css\", \"productos.html\"...). ALWAYS check your work with this after patches apply — a 404 here means the file is missing, truncated output still means the full file serves fine.", "params": ["path"]},
+    {"name": "journal_tail", "describe": "The last 30 events of this app's journal: patches applied or failed, tool dispatches, approvals, errors. Your first stop when something seems off or when the human says something didn't work.", "params": []},
     {"name": "propose_action", "describe": "Queue an EXTERNAL action (send something, call an API, a payment...) for execution. A human approves it in their inbox and then it executes. `title` = short imperative description. For building/editing this app's files use propose_patch, NOT this.", "params": ["title"]},
     {"name": "list_actions", "describe": "List every queued action, its status and its actual result once executed.", "params": []}
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files: everything under site/ is yours to create and edit via propose_patch, and it serves live at /site as soon as the human approves. For EXTERNAL side effects (emails, API calls, payments) use propose_action — and be honest that its executor starts as a placeholder that only records the action (list_actions shows each action's real result) until a human wires real code into execute_action."
+let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files: everything under site/ is yours to create and edit via propose_patch, and it serves live at /site as soon as the human approves. After your patches apply, CHECK your own work: preview_page shows what /site really serves, journal_tail shows what happened (applies, failures, decisions) — verify first, then report. For EXTERNAL side effects (emails, API calls, payments) use propose_action — and be honest that its executor starts as a placeholder that only records the action (list_actions shows each action's real result) until a human wires real code into execute_action."
 
 -- agent.operator = YOUR domain (above) + the framework's baseline: the
 -- Synsema docs/sandbox tools, the autonomy rules ("build it NOW, report what

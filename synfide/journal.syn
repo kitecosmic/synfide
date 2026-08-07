@@ -49,3 +49,14 @@ export task dispatch(tools, name, args, actor)
 export task entries()
     let vals be apply(store.list("synfide-jrn:"), (kv) => kv["value"])
     give sort_by(vals, (e) => e["n"])
+
+-- tail(k) → the last k entries as compact text, one per line — the agent's
+-- eyes on what actually happened (patches applied, dispatches, errors,
+-- decisions) without dragging the whole ledger into its context.
+export task tail(k)
+    let es be entries()
+    let maxn be length(es)
+    let recent be where(es, (e) => e["n"] > maxn - k)
+    when length(recent) == 0
+        give "journal is empty"
+    give join(apply(recent, (e) => "#" + text(e["n"]) + " [" + text(e["actor"]) + "] " + text(e["action"]) + ": " + text(e["detail"])), "\n")

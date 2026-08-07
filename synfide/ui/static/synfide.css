@@ -372,6 +372,10 @@ table { width: 100%; border-collapse: collapse; }
 .msg.user { justify-content: flex-end; }
 .msg.user span { background: var(--user); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant span { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+/* approve-all: the batch case (several patches of one build) in one click */
+.decide-all { display: flex; gap: .5rem; align-items: center; margin-bottom: .9rem; flex-wrap: wrap; }
+.decide-all .hint { font-size: 11.5px; color: var(--muted); }
+
 /* the "agent is thinking" bubble the composer appends while a send is in flight */
 .msg.thinking .dot {
   display: inline-block; width: 6px; height: 6px; margin: 0 2px;

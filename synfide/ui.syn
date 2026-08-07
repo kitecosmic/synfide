@@ -774,6 +774,23 @@ export task static_file(dir, relpath)
         give binary(read_file_bytes(full), "image/webp")
     give respond(read_file(full), "application/octet-stream")
 
+-- preview_file(dir, relpath, max_chars) → what static_file would SERVE, as
+-- text for an agent's context: the agent's eyes on its own site. Truncated
+-- (a whole page would flood the context), binary-safe (reports instead of
+-- dumping bytes), and 404s read as text, not as errors.
+export task preview_file(dir, relpath, max_chars = 4000)
+    let r be static_file(dir, relpath)
+    when status of r == 404
+        give "404 — /" + text(relpath) + " serves nothing (file missing under " + dir + ")"
+    let b be ""
+    try
+        set b to text(body of r)
+    recover err
+        give "(binary file — served fine, nothing to preview as text)"
+    when length(b) > max_chars
+        give slice(b, 0, max_chars) + "\n… (truncated at " + text(max_chars) + " chars — the full file IS served)"
+    give b
+
 -- admin_get(path, request, query, cfg) → the full GET surface.
 export task admin_get(path, request, query, cfg)
     let p be text(path)
@@ -797,13 +814,16 @@ export task admin_get(path, request, query, cfg)
         give logout(request)
     when p == "llms.txt"
         give llms_txt(cfg)
-    -- JSON API: session OR bearer
+    -- JSON API: session OR bearer. The records are SANITIZED: a protected
+    -- approval's one-time code exists to travel through the OPERATOR's own
+    -- channel — echoing it here would hand it to whoever reads the inbox
+    -- and void the protection.
     when p == "inbox"
         when not open
             let ga be api_or_session_guard(request)
             when ga != nothing
                 give ga
-        give approvals.pending()
+        give apply(approvals.pending(), (a) => {"id": a["id"], "message": a["message"], "status": a["status"], "requested_at": a["requested_at"], "protected": contains(a, "code")})
     -- browser pages: session required
     when not open
         let g be guard(request)
@@ -842,9 +862,12 @@ export task admin_post(path, request, cfg)
         give setup_submit(request.json)
     when p == "login/submit"
         give login_submit(request.json)
-    -- JSON API: session OR bearer (scripts, bots, other services)
+    -- JSON API: session OR bearer (scripts, bots, other services).
+    -- "inbox/ui/*" is the BROWSER surface (decide, decide_all) — anything
+    -- under it must fall through to the session-guarded branch below, or a
+    -- new browser action gets mis-read as an approval id (decide_all was).
     when starts_with(p, "inbox/")
-        when p != "inbox/ui/decide"
+        when not starts_with(p, "inbox/ui/")
             when not open
                 let ga be api_or_session_guard(request)
                 when ga != nothing
@@ -864,6 +887,8 @@ export task admin_post(path, request, cfg)
             give g
     when p == "inbox/ui/decide"
         give resolve_json(request.json)
+    when p == "inbox/ui/decide_all"
+        give resolve_all_json(request.json)
     when p == "admin/env/code"
         give env_code_request()
     when p == "admin/env/set"
@@ -893,6 +918,29 @@ export task resolve_json(body)
         give respond("unknown approval: " + esc(text(body["id"])), "text/plain", 404)
     journal.record(who, "ui-decision", text(body["id"]) + " -> " + d["status"])
     give {"ok": true, "status": d["status"]}
+
+-- resolve_all_json(body) → approve EVERY plain pending approval in one go —
+-- the batch case is real (an agent building a site proposes several patches;
+-- one click each reads as friction, and friction kills the loop). Each
+-- decision is still individually journaled. PROTECTED approvals (the ones
+-- demanding a one-time code) are SKIPPED, never force-approved — bulk can't
+-- bypass a code. Wire at POST /inbox/ui/decide_all behind guard_api.
+export task resolve_all_json(body)
+    let who be "web"
+    when body != nothing
+        when contains(body, "who")
+            when trim(text(body["who"])) != ""
+                set who to text(body["who"])
+    let done be 0
+    let skipped be 0
+    each a in approvals.pending()
+        try
+            approvals.resolve(a["id"], true, who)
+            journal.record(who, "ui-decision", text(a["id"]) + " -> approved (bulk)")
+            set done to done + 1
+        recover err
+            set skipped to skipped + 1
+    give {"ok": true, "approved": done, "skipped_protected": skipped}
 
 -- resolve(id, approved_text, who_text) → the GET-form variant (no-JS). Kept
 -- for compatibility; prefer resolve_json for session-cookie deployments (a

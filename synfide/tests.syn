@@ -428,20 +428,24 @@ task approving_auditor(patch, guidelines)
     give {"approved": true, "reasons": "test: cambio chico y seguro"}
 
 test "patch loop completo: propose -> audit ok -> gate en el inbox -> aprobar -> apply escribe el archivo"
-    patches.propose("e2e", "./.tmp-tests/site-e2e.html", nothing, "<h1>hola sitio</h1>", "create the page")
-    patches.audit("e2e", approving_auditor, "")
-    assert_eq(patches.get("e2e")["status"], "audited-ok")
+    -- nombre unico por corrida: .tmp-tests persiste entre runs y un CREATE
+    -- jamas pisa un archivo existente (esa negativa tiene su propio test)
+    let eid be "e2e-" + text(now())
+    let epath be "./.tmp-tests/site-" + eid + ".html"
+    patches.propose(eid, epath, nothing, "<h1>hola sitio</h1>", "create the page")
+    patches.audit(eid, approving_auditor, "")
+    assert_eq(patches.get(eid)["status"], "audited-ok")
     -- el workflow parquea en el gate humano
-    let r1 be durable.run("patch-e2e", agent.patch_steps(), {"id": "e2e"})
+    let r1 be durable.run("patch-" + eid, agent.patch_steps(), {"id": eid})
     assert_eq(r1["status"], "waiting")
     let pend be apply(approvals.pending(), (a) => a["id"])
-    assert(contains(pend, "patch-e2e"), "el gate esta en el inbox de aprobaciones")
+    assert(contains(pend, "patch-" + eid), "el gate esta en el inbox de aprobaciones")
     -- el humano aprueba -> el (heartbeat) re-run aplica DE VERDAD
-    approvals.resolve("patch-e2e", true, "tester")
-    let r2 be durable.run("patch-e2e", agent.patch_steps(), {"id": "e2e"})
+    approvals.resolve("patch-" + eid, true, "tester")
+    let r2 be durable.run("patch-" + eid, agent.patch_steps(), {"id": eid})
     assert_eq(r2["status"], "done")
-    assert_eq(patches.get("e2e")["status"], "applied")
-    assert(contains(read_file("./.tmp-tests/site-e2e.html"), "hola sitio"), "el archivo REAL existe con el contenido")
+    assert_eq(patches.get(eid)["status"], "applied")
+    assert(contains(read_file(epath), "hola sitio"), "el archivo REAL existe con el contenido")
 
 test "patch loop: un gate DENEGADO nunca llega al filesystem"
     patches.propose("e2e-no", "./.tmp-tests/site-denied.html", nothing, "<h1>no</h1>", "create denied page")
@@ -469,6 +473,34 @@ test "static_file: el traversal se rechaza, tambien con backslashes"
     assert_eq(status of a, 404)
     let b be ui.static_file("./.tmp-tests", "..\\..\\.env")
     assert_eq(status of b, 404)
+
+test "preview_file: muestra lo servido, trunca lo largo y el 404 es texto (no error)"
+    write_file("./.tmp-tests/prev.html", "<h1>vista previa</h1>")
+    assert(contains(ui.preview_file("./.tmp-tests", "prev.html"), "vista previa"))
+    let long be ui.preview_file("./.tmp-tests", "prev.html", 5)
+    assert(contains(long, "truncated"), "se trunca con nota: " + long)
+    assert(contains(ui.preview_file("./.tmp-tests", "no-existe.html"), "404"), "el 404 llega como texto al agente")
+
+test "journal.tail: las ultimas k entradas, compactas, una por linea"
+    journal.record("tester", "probe-a", "primera")
+    journal.record("tester", "probe-b", "segunda")
+    let t be journal.tail(2)
+    assert(contains(t, "probe-b"), "la mas nueva esta")
+    assert(not contains(t, "patch-apply") or length(split(t, "\n")) == 2, "solo k lineas")
+    assert_eq(length(split(t, "\n")), 2)
+
+test "resolve_all: aprueba todo lo plano de una vez y SALTEA lo protegido por codigo"
+    approvals.request("bulk-1", "primera accion")
+    approvals.request("bulk-2", "segunda accion")
+    approvals.request("bulk-3", "accion sensible")
+    approvals.protect("bulk-3")
+    let r be ui.resolve_all_json({"who": "tester"})
+    -- >= y no ==: otros tests dejan pendientes propios en el store compartido
+    assert(r["approved"] >= 2, "al menos las dos planas aprobadas: " + text(r["approved"]))
+    assert(r["skipped_protected"] >= 1, "la protegida NO se aprueba en lote")
+    assert_eq(approvals.status("bulk-1")["status"], "approved")
+    assert_eq(approvals.status("bulk-2")["status"], "approved")
+    assert_eq(approvals.status("bulk-3")["status"], "pending", "la protegida sigue esperando su codigo")
 
 -- ---------- limits ----------
 
@@ -728,6 +760,19 @@ test "dispatcher: modo open (demos) no exige sesion; el API respeta el guard"
     let d be ui.admin_post("inbox/disp-1", anon_post, cfg)
     assert_eq(d["status"], "approved")
     assert_eq(status of ui.admin_post("inbox/no-existe", anon_post, cfg), 404)
+    -- el inbox JSON JAMAS filtra el codigo de un approval protegido — el
+    -- codigo viaja solo por el canal del operador
+    approvals.request("disp-prot", "protected probe")
+    approvals.protect("disp-prot")
+    let inbox_json be json_encode(ui.admin_get("inbox", anon, q, cfg))
+    assert(not contains(inbox_json, "\"code\""), "el codigo no sale por el API")
+    assert(contains(inbox_json, "\"protected\": true") or contains(inbox_json, "\"protected\":true"), "pero se declara protegido")
+    -- regresion: decide_all es superficie de BROWSER — no puede caer en la
+    -- rama del API y leerse como el approval id "ui/decide_all"
+    approvals.request("disp-2", "bulk dispatch me")
+    let all be ui.admin_post("inbox/ui/decide_all", {"cookies": {}, "headers": {}, "json": {"who": "disp"}}, cfg)
+    assert(contains(all, "approved"), "decide_all rutea a resolve_all_json: " + text(all))
+    assert_eq(approvals.status("disp-2")["status"], "approved")
 
 -- ---------- approvals con codigo (OTP por cualquier canal) ----------
 

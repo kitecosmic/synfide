@@ -66,6 +66,24 @@
     });
   });
 
+  // Approve-all: one click for the batch case (an agent building a site
+  // proposes several patches). Confirmation first; code-protected approvals
+  // are skipped server-side, never bulk-approved.
+  var allForm = document.getElementById('decideall');
+  if (allForm) {
+    allForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (!window.confirm('Approve ALL pending items? (code-protected ones are skipped)')) return;
+      fetch('/inbox/ui/decide_all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ who: allForm.elements.who.value })
+      })
+        .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); }); })
+        .catch(function (e) { alert('failed: ' + e); });
+    });
+  }
+
   // The write-only env editor: value goes out as JSON exactly once, is never
   // echoed back, and every save needs the one-time code the server prints to
   // ITS terminal (Request code). Without JS, the page still explains the

@@ -2,6 +2,11 @@
 <div class="module">
   <h3 class="caption">Waiting for you</h3>
   { when has_pending }
+  <form class="decide-all" id="decideall">
+    <input name="who" placeholder="who decides (optional)" value="">
+    <button class="ok">Approve all ({ pending_n })</button>
+    <span class="hint">code-protected approvals are skipped, never bulk-approved</span>
+  </form>
   { each a in approvals }<div class="card">
     <div class="{ a.cls }">{ a.message }</div>
     <span class="aid">{ a.id }</span>

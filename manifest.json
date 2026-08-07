@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.14",
+  "version": "v0.3.15",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -34,7 +34,7 @@
     {
       "src": "synfide/journal.syn",
       "dest": "synfide/journal.syn",
-      "sha256": "1101270fbdeab320a45a8ad444b74924dd6a4a52c1b745fb9593711f36a2ef8e"
+      "sha256": "992710ef13956d086a49ef6cedfc38202758d82e2e279fbb507fa76d859c8191"
     },
     {
       "src": "synfide/patches.syn",
@@ -49,12 +49,12 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "291d43c33559005a35db643577211e872354e45674cf7f55ca241325e26a5009"
+      "sha256": "7747a58c568a47469e9146f2e9dbf624945cd903330e332e20db4272fbf2e251"
     },
     {
       "src": "synfide/agent.syn",
       "dest": "synfide/agent.syn",
-      "sha256": "c9f80cdeb044fd6174cb19687779f916662cfef6ac26e4aa2720fc2f95916bda"
+      "sha256": "07e1bd852b07c131932a337eca650c8a3cae9f42e749871a1d07704815bb6d0c"
     },
     {
       "src": "synfide/ui/layouts/base.html",
@@ -89,7 +89,7 @@
     {
       "src": "synfide/ui/pages/inbox.html",
       "dest": "synfide/ui/pages/inbox.html",
-      "sha256": "01234fc5448541164539b316c2069225a3db2b5bfd92e7de058cc8ef721e1b16"
+      "sha256": "91e3e66d00101802286da29110ef7dcb39492dab7fc0c0bc08c73c124dc61331"
     },
     {
       "src": "synfide/ui/pages/workflows.html",
@@ -124,17 +124,17 @@
     {
       "src": "synfide/ui/static/synfide.css",
       "dest": "synfide/ui/static/synfide.css",
-      "sha256": "3bccf7d315195b5a526a3b132e0fc98001fc526f2e1503c5a4cffd32ff835715"
+      "sha256": "3e28345f201f9c2d25742437fe443bc1dd2dbcc93b8512a916c80d40a9998ebc"
     },
     {
       "src": "synfide/ui/static/synfide.js",
       "dest": "synfide/ui/static/synfide.js",
-      "sha256": "16e034d74aaa06bb0c61594cb97e3cba2dac197e663fab0565e0f7047d73d9fd"
+      "sha256": "8e6f32e238809f33ccf706153eeb1a1e7811b7498d36629e711f193ead188ba0"
     },
     {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "794e23539431a1b9ab36245018a5fd8d852126fbdbc56de9d0c908b180c9fc03"
+      "sha256": "f083bf8a77ee361a2e76efb9f3db163e12de85edddb5b64a328a74e1b6b7f601"
     },
     {
       "src": "synfide/console.syn",
@@ -144,7 +144,7 @@
     {
       "src": "synfide/tests.syn",
       "dest": "synfide/tests.syn",
-      "sha256": "140ce25689b61cb93c8622e24110a76001561412f74de34e76425d508ef4a22f"
+      "sha256": "89af78db6401e66a73452eb63f70f8f91a8ff8f2a3f5f7761d3c8725ba8ed690"
     },
     {
       "src": "scaffold/AGENTS.md",
@@ -164,7 +164,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "7996b04f8e33f447fbc19676350b76754c03d3e611b25d533656d98f6f56216d"
+      "sha256": "bd0370446aa40cd855ec4e77b1a20838703cf9f15cefefa7d00bfa5275312c52"
     }
   ]
 }
