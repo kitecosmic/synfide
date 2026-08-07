@@ -24,6 +24,7 @@ require random
 require file("./.env")
 require file.read("./.env.example")
 require file.read("./synfide/ui/static/*")
+require file.read(".")                       -- root dir NODE only (names, no contents): the upgrade banner lists *.new files
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable

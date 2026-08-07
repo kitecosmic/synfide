@@ -210,7 +210,23 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   (proves console access; unforgeable cross-site; single use, 10 min, burned
   on use — `constant_time_eq`). Entry caps: `require secret` + `require
   random` + `require file("./.env")`. Restart to apply; `synsema llm status`
-  diagnoses LLM wiring.
+  diagnoses LLM wiring. **New variables from the dashboard:** the /admin/env
+  list is the union of `./.env.example`, `./.env` itself, the release's
+  KNOWN_VARS and CONFIG `env_vars` — and with `env_editable` the form also
+  CREATES variables the list never heard of (your Supabase, your WABA, any
+  custom API): any `UPPER_SNAKE_CASE` name (`[A-Z][A-Z0-9_]{0,63}`), same
+  one-time code, lands in `.env` and keeps showing from then on
+  (`env_set(body, allowed, allow_new)` — the dispatcher passes
+  `env_editable` as `allow_new`).
+- **Upgrade leftovers banner:** every admin page warns when the installer
+  left `<file>.new` companions in the project root (a release changed a user
+  file that had local edits — the user's copy is KEPT, the release's lands
+  beside it). `ui.upgrade_leftovers()` lists them via `list_dir(".")`; the
+  ENTRY declares `require file.read(".")` (the directory NODE only — names,
+  never contents). Without the cap the probe silently reports none, so older
+  entries keep working; add the line to get the banner. Merge (or ask the
+  agent to propose the merge as a patch), then DELETE the `.new` file to
+  dismiss.
 - The chat composer is a textarea: Enter sends, Shift+Enter makes a new line;
   messages render with newlines preserved (pre-wrap).
 - List pages auto-refresh but never while a field has focus; patch diffs and

@@ -83,15 +83,19 @@
     envForm.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var f = envForm.elements;
+      // A typed "new variable" name wins over the picker — that's how a var
+      // the framework never heard of (your Supabase, your WABA) gets created.
+      var newname = f.newname ? f.newname.value.trim() : '';
       fetch('/admin/env/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: f.name.value, value: f.value.value, code: f.code.value })
+        body: JSON.stringify({ name: newname || f.name.value, value: f.value.value, code: f.code.value })
       })
         .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
         .then(function (res) {
           if (!res.ok) return say(res.t, true);
           f.value.value = ''; f.code.value = '';
+          if (f.newname) f.newname.value = '';
           say('Saved to .env — restart the server to apply.');
           setTimeout(function () { location.reload(); }, 1200);
         })

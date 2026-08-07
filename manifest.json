@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.10",
+  "version": "v0.3.11",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -49,7 +49,7 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "a66225b7a374904f8cc02b2481217e20b0e152278a2ea8191e3fb983c13d2c4c"
+      "sha256": "7523c53da99782c18c3d4d398524046ae13b1dc22579c7c50afe18b40f252f83"
     },
     {
       "src": "synfide/agent.syn",
@@ -59,7 +59,7 @@
     {
       "src": "synfide/ui/layouts/base.html",
       "dest": "synfide/ui/layouts/base.html",
-      "sha256": "6eaf35d80cfe2de99126f26252aa769d03856045b952f0d147adbd74d915bb00"
+      "sha256": "04a6d77bce52bf7ae5a036a45eb85eb2a0629b705d2160226e454c2df66ae6e6"
     },
     {
       "src": "synfide/ui/layouts/auth.html",
@@ -114,7 +114,7 @@
     {
       "src": "synfide/ui/pages/env.html",
       "dest": "synfide/ui/pages/env.html",
-      "sha256": "0ff25309526e8f3e6c8c67791f2fe9b935bf3e2ed03d0cddba16a4ca02850267"
+      "sha256": "e664f32ae07efeeed148b89fdae0b1058a042cdf3f09fe3a9a5ca42348568ada"
     },
     {
       "src": "synfide/ui/pages/endpoints.html",
@@ -129,12 +129,12 @@
     {
       "src": "synfide/ui/static/synfide.js",
       "dest": "synfide/ui/static/synfide.js",
-      "sha256": "f417be3d787e3b5de7e0d99534e96036791021aef204e0ed149e8adc78ee44d0"
+      "sha256": "31044c8b7806dc6d39aa7021b099e5380064bbc7f103b20bdab06ddb8fd0d7ab"
     },
     {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "e937735a6992e6ccd2803b368357bd3b96d62a031ac5a21d368e9cf19360943a"
+      "sha256": "8632b1ec900909f1f1a4dd1c5e4ab61567b99209818f32646fbe25b45644c613"
     },
     {
       "src": "synfide/console.syn",
@@ -144,7 +144,7 @@
     {
       "src": "synfide/tests.syn",
       "dest": "synfide/tests.syn",
-      "sha256": "c8750c172fc3dfdc9c2a8da326ad19b5d3edafdef0f868ca3d0963abd795620e"
+      "sha256": "0834112e5ff14cc4cd17ddac28ce700bdfabc095295bfe9fcfc5527f6807c73a"
     },
     {
       "src": "scaffold/AGENTS.md",
@@ -159,7 +159,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "30b57942e8f909b85a16e823412c298b9cb213f214c64e6d95cbf1c3ddb6aa77"
+      "sha256": "19a4ee19f875014e6061652f5c26f6d9b6b3b9763d08bb89aa13bc7b918af7dd"
     }
   ]
 }

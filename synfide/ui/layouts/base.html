@@ -31,6 +31,12 @@
     <p class="side-note">terminal: <code>synsema run synfide/console.syn</code><br><a href="/logout">Sign out</a></p>
   </aside>
   <main>
+{ when has_new_files }
+<p class="warn-banner"><b>An upgrade left { new_files } in the project root.</b>
+Your edited file(s) were NOT touched — the new release's copy landed beside each one as
+<code>.new</code>. Compare and merge what you want (or ask the agent in <a href="/chat">Chat</a>
+to propose the merge as a patch), then delete the <code>.new</code> file to dismiss this notice.</p>
+{ end }
 { slot }
   </main>
 </div>

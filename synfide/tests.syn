@@ -11,6 +11,7 @@ require spend("T_*")
 require random
 require secret
 require file("./.tmp-tests/*")
+require file.read("./.tmp-tests")
 require file.read("./.env.example")
 require file.read("./synfide/ui/static/*")
 
@@ -316,6 +317,38 @@ test "ui env: env_set exige codigo de consola valido, de un solo uso, y escribe 
     -- valor multilinea (inyectaria variables extra) -> 400
     let r3 be ui.env_set({"name": "SYNFIDE_TEST_VAR_QUE_NO_EXISTE", "value": "a\nB=x", "code": "1"}, ["SYNFIDE_TEST_VAR_QUE_NO_EXISTE"])
     assert_eq(status of r3, 400)
+
+test "ui env: allow_new acepta nombres UPPER_SNAKE nuevos y rechaza los malformados"
+    -- sin allow_new (default), un nombre fuera de la lista sigue siendo desconocido -> 400
+    let r1 be ui.env_set({"name": "SUPABASE_URL", "value": "v", "code": "1"}, ["OTRA_VAR"])
+    assert_eq(status of r1, 400)
+    -- con allow_new, un nombre malformado nunca llega a .env -> 400
+    let r2 be ui.env_set({"name": "minusculas", "value": "v", "code": "1"}, ["OTRA_VAR"], true)
+    assert_eq(status of r2, 400)
+    let r3 be ui.env_set({"name": "CON ESPACIO", "value": "v", "code": "1"}, ["OTRA_VAR"], true)
+    assert_eq(status of r3, 400)
+    let r4 be ui.env_set({"name": "INYECTA=X", "value": "v", "code": "1"}, ["OTRA_VAR"], true)
+    assert_eq(status of r4, 400)
+    let r5 be ui.env_set({"name": "1EMPIEZA_CON_DIGITO", "value": "v", "code": "1"}, ["OTRA_VAR"], true)
+    assert_eq(status of r5, 400)
+    -- un nombre nuevo BIEN formado pasa la validacion de nombre: cae recien en
+    -- el codigo de consola (403, no 400) — el .env real jamas se toca aqui
+    let r6 be ui.env_set({"name": "SUPABASE_URL", "value": "v", "code": "000000"}, ["OTRA_VAR"], true)
+    assert_eq(status of r6, 403)
+
+test "ui env: env_vars_all une example, KNOWN_VARS y extras (y sin cap de .env degrada sin error)"
+    let names be ui.env_vars_all(["MI_EXTRA_VAR"])
+    assert(contains(names, "SYNSEMA_LLM_PROVIDER"), "KNOWN_VARS presentes")
+    assert(contains(names, "MI_EXTRA_VAR"), "extras del CONFIG presentes")
+
+test "ui upgrade: upgrade_leftovers lista solo *.new y degrada a [] sin capability"
+    write_file("./.tmp-tests/probe.syn.new", "release copy")
+    write_file("./.tmp-tests/normal.txt", "x")
+    let found be ui.upgrade_leftovers("./.tmp-tests")
+    assert(contains(found, "probe.syn.new"), "el .new aparece")
+    assert(not contains(found, "normal.txt"), "los demas archivos no")
+    -- un dir fuera de las capabilities no rompe la pagina: degrada a vacio
+    assert_eq(ui.upgrade_leftovers("./directorio-sin-cap"), [])
 
 test "ui endpoints: la lista curada renderiza dentro del shell"
     let page be ui.endpoints_page(["GET /x — does x.\n  curl localhost:8080/x"])

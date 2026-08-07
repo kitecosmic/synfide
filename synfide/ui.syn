@@ -54,6 +54,7 @@ task esc(v)
 task shell_data(title, active, crumb, refresh, scroll)
     let wfs be durable.workflows("")
     let pending_n be length(approvals.pending())
+    let leftovers be upgrade_leftovers()
     let d be {
         "title": title,
         "crumb": crumb,
@@ -70,7 +71,9 @@ task shell_data(title, active, crumb, refresh, scroll)
         "parked_n": length(where(wfs, (w) => w["status"] == "waiting")),
         "tokens": llm_usage(),
         "refresh": refresh,
-        "scroll": scroll
+        "scroll": scroll,
+        "new_files": join(leftovers, " · "),
+        "has_new_files": length(leftovers) > 0
     }
     set d["nav_" + active] to "on"
     give d
@@ -370,6 +373,28 @@ export task logout(request)
     session_end(cookie_sid(request))
     give clear_cookie(go("/login"), "sid")
 
+-- ---------- upgrade leftovers ----------
+
+-- upgrade_leftovers(dir = ".") → every *.new file the installer left in the
+-- project root: a release changed a user file that had local edits, so the
+-- user's copy was KEPT and the release's landed beside it as <file>.new.
+-- Nothing announces those files otherwise — whoever doesn't know the
+-- convention never learns there is something to merge, so the shell shows a
+-- banner on every page until they're dealt with (merge, then delete the
+-- .new). Needs the entry cap `require file.read(".")` — the directory NODE
+-- only: names, never contents. Without it (older entries) the probe
+-- degrades to "no leftovers" instead of erroring.
+export task upgrade_leftovers(dir = ".")
+    try
+        let found be []
+        each e in list_dir(dir)
+            when not e["is_dir"]
+                when ends_with(e["name"], ".new")
+                    set found to found + [e["name"]]
+        give found
+    recover err
+        give []
+
 -- ---------- environment ----------
 
 -- The probe is SEALED: secret(name) never lets the value into program space —
@@ -434,7 +459,7 @@ export task env_names_from_example(path)
 -- editable) and wires:
 --     route "GET /admin/env"        give html(ui.env_page(ENV_VARS, true))
 --     route "POST /admin/env/code"  give ui.env_code_request()
---     route "POST /admin/env/set"   give ui.env_set(json of request, ENV_VARS)
+--     route "POST /admin/env/set"   give ui.env_set(json of request, ENV_VARS, true)
 export task env_page(names, editable)
     let d be shell_data("Synfide — environment", "env", "Environment", "", "")
     set d["vars"] to apply(names, (n) => env_view(n))
@@ -467,17 +492,25 @@ task burn_env_code(code)
         raise("wrong code")
     give true
 
--- env_set(body, allowed) → writes NAME=value into ./.env (atomic; creates the
--- file if absent; replaces the line if present). The value is validated to a
--- single line (a newline would smuggle extra variables in), the name must be
--- in the entry's allowed list, and the one-time code must match. The value is
--- never echoed back, logged, or stored anywhere except .env itself.
-export task env_set(body, allowed)
+-- env_set(body, allowed, allow_new = false) → writes NAME=value into ./.env
+-- (atomic; creates the file if absent; replaces the line if present). The
+-- value is validated to a single line (a newline would smuggle extra
+-- variables in) and the one-time code must match. The name must be in the
+-- entry's allowed list — OR, when `allow_new` (the dispatcher passes
+-- env_editable), any well-formed UPPER_SNAKE_CASE name: your Supabase, your
+-- WABA, your custom API — the framework can't foresee them. Once saved it
+-- lives in ./.env, which env_vars_all reads, so it keeps showing on the
+-- page. The value is never echoed back, logged, or stored anywhere except
+-- .env itself.
+export task env_set(body, allowed, allow_new = false)
     when body == nothing
         give respond("body must be JSON: {\"name\", \"value\", \"code\"}", "text/plain", 400)
     let name be text(body["name"])
     when not contains(allowed, name)
-        give respond("unknown variable: " + esc(name), "text/plain", 400)
+        when not allow_new
+            give respond("unknown variable: " + esc(name), "text/plain", 400)
+        when not matches(name, "[A-Z][A-Z0-9_]{0,63}")
+            give respond("new variable names are UPPER_SNAKE_CASE: A-Z, 0-9 and _, starting with a letter, 64 chars max", "text/plain", 400)
     let value be text(body["value"])
     when contains(value, "\n") or contains(value, "\r")
         give respond("value must be a single line", "text/plain", 400)
@@ -617,10 +650,24 @@ task cfg_get(cfg, key, fallback)
         give cfg[key]
     give fallback
 
--- The /admin/env list = UNION of ./.env.example (primary, dynamic), the names
--- known at this release (floor for stale examples), and the entry's extras.
+-- Names already living in ./.env — so a custom variable saved from the
+-- dashboard (or hand-added to the file) keeps showing on /admin/env after
+-- the save. Reading ./.env takes the entry's `file("./.env")` cap, which
+-- only editable entries declare: absent, this source degrades to empty.
+task env_names_from_env_file()
+    try
+        give env_names_from_example("./.env")
+    recover err
+        give []
+
+-- The /admin/env list = UNION of ./.env.example (primary, dynamic), ./.env
+-- itself (custom variables live only there), the names known at this release
+-- (floor for stale examples), and the entry's extras.
 export task env_vars_all(extra)
     let names be env_names_from_example("./.env.example")
+    each ev in env_names_from_env_file()
+        when not contains(names, ev)
+            set names to names + [ev]
     each kv in KNOWN_VARS
         when not contains(names, kv)
             set names to names + [kv]
@@ -768,7 +815,7 @@ export task admin_post(path, request, cfg)
     when p == "admin/env/code"
         give env_code_request()
     when p == "admin/env/set"
-        give env_set(request.json, env_vars_all(cfg_get(cfg, "env_vars", [])))
+        give env_set(request.json, env_vars_all(cfg_get(cfg, "env_vars", [])), cfg_get(cfg, "env_editable", false))
     give not_found("no such action: " + esc(p))
 
 -- ---------- decisions ----------
