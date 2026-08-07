@@ -392,6 +392,31 @@ test "chat_send_with: the answer comes from YOUR responder"
     let page be ui.chat_page()
     assert(contains(page, "eco: probando al agente"))
 
+task domain_tool_x()
+    give "x"
+
+test "operator: el baseline de Synsema se une DEBAJO del dominio y el dominio gana en colision"
+    -- sin dominio: el piso completo esta
+    let t0 be agent.operator_tools({})
+    assert(contains(t0, "synsema_docs") and contains(t0, "synsema_verify"), "docs y verify en el piso")
+    assert_eq(length(keys(t0)), length(agent.base_catalog()), "allow-list y catalogo del piso coinciden")
+    -- con dominio: se suma sin pisar nada
+    let t1 be agent.operator_tools({"mi_tool": domain_tool_x})
+    assert(contains(t1, "mi_tool") and contains(t1, "synsema_docs"))
+    -- colision de nombre: la tool del USUARIO gana (jamas la enmascara el
+    -- piso) — se prueba EJECUTANDO la ganadora: la del dominio es pura y
+    -- responde "x"; la del piso necesitaria net(docs.synsema.com)
+    let t2 be agent.operator_tools({"synsema_docs": domain_tool_x})
+    assert_eq(call_tool(t2["synsema_docs"], nothing), "x")
+    let c2 be agent.operator_catalog([{"name": "synsema_docs", "describe": "la mia", "params": []}])
+    let mine be where(c2, (c) => c["name"] == "synsema_docs")
+    assert_eq(length(mine), 1, "una sola entrada por nombre en el catalogo")
+    assert_eq(mine[0]["describe"], "la mia")
+
+test "operator: offline degrada al placeholder igual que respond, con dominio vacio"
+    let out be agent.operator("hola", {}, [], "", "", 2)
+    assert(contains(out, "no llm provider"), "offline → placeholder del runtime: " + out)
+
 -- ---------- limits ----------
 
 test "limits: charge accumulates, within cuts, reset forgets"

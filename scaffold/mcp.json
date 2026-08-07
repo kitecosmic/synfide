@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "synsema-docs": {
+      "type": "http",
+      "url": "https://docs.synsema.com/mcp"
+    }
+  }
+}

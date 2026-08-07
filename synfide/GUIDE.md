@@ -23,7 +23,18 @@ This file covers what those do NOT: the framework's packages, contracts and rule
    One memory name per program; entries sharing a name share state.
 3. **Generic packages, neutral scaffold, opinionated examples.** Domain logic
    goes in the user's files, never into the framework.
-4. Update/install: `synsema init --synfide` (re-run to upgrade — user files are
+4. **Synsema end to end; HTML/CSS/JS only for the frontend.** Everything the
+   framework promises — deny-by-default capabilities, sealed secrets, the
+   approval inbox, the audit journal, spend ceilings, the sandbox verify loop —
+   is a property of the Synsema RUNTIME: code in another language runs outside
+   all of it (ambient authority, unsealed `.env`, no inbox, no audit). App
+   logic is `.syn`; HTML/CSS/JS serve the browser side (`render()` templates,
+   static assets). Another backend language is a HUMAN decision made explicit
+   in a diff that grants `require exec(...)` — never an agent's silent
+   default. Tooling for agents: the scaffold ships `.mcp.json` (official docs
+   MCP: search/get pages + sandbox-verify snippets); the machine-level skill
+   installs with the one-liner at the top of this file.
+5. Update/install: `synsema init --synfide` (re-run to upgrade — user files are
    never overwritten). Version: `synfide/VERSION`.
 
 ## Synsema gotchas that WILL bite you writing `.syn` here
@@ -126,6 +137,22 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   never refuse for lack of access"), or models refuse politely.
 - Tools that need a human should START a durable workflow whose gate parks in
   the inbox — the agent answers "waiting for approval", the heartbeat finishes.
+- **`agent.operator(question, domain_tools, domain_catalog,
+  domain_instructions, history, max_steps = 4)` — the OPERATOR baseline.**
+  `respond()` over your domain PLUS the framework's floor: the Synsema
+  docs/sandbox tools (`synsema_docs/page/example/run/verify`, the in-app twin
+  of the docs MCP — same server, spoken by `synfide/docs.syn`) and the
+  standing rule "you don't know Synsema from training — search, read,
+  verify". This is what the dashboard chat should run (the scaffold's
+  `chat_agent` is one line over it): the entry carries ONLY domain, the
+  baseline updates with the framework, and replacing your TOOLS never makes
+  the agent unlearn the language. On a name collision your tool wins. Entry
+  cap: `require net("docs.synsema.com")`. With no domain at all
+  (`{}, [], ""`) it is still an agent that can learn Synsema — that's the
+  dispatcher's default responder when CONFIG has none. `respond()` stays
+  baseline-free for agents that shouldn't carry docs tools (a future
+  customer-facing agent). Also exported: `base_catalog()`,
+  `base_instructions()`, `operator_tools/operator_catalog(domain)`.
 
 ### patches — self-modification with a seatbelt (needs: memory, time; apply: file.write scope; llm_auditor: llm)
 - The loop the framework packages: an agent PROPOSES an exact change to one of
@@ -192,7 +219,9 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   `/inbox/:id` — session OR bearer). Route precedence is by specificity, so
   the user's own routes always win. New framework pages in future releases
   appear WITHOUT touching the user's entry.
-- CONFIG (all keys optional): `responder` (chat agent task), `env_vars`
+- CONFIG (all keys optional): `responder` (chat agent task; ABSENT → the
+  dispatcher runs `agent.operator` with zero domain, so even the bare chat
+  can learn Synsema), `env_vars`
   (extra names), `env_editable` (bool), `api_docs` (endpoint doc strings →
   endpoints page + llms.txt), `about` (llms.txt title), `open` (bool — DEMO
   mode, no login; local examples only).

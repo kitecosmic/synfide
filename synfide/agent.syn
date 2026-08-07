@@ -14,6 +14,7 @@
 -- whatever the tools themselves declare). This module declares nothing.
 
 use "./journal.syn" as journal
+use "./docs.syn" as docs
 
 -- respond(question, tools, catalog, context, max_steps) → the agent's final text.
 --   tools    — the allow-list: {"name": task}
@@ -40,3 +41,88 @@ export task respond(question, tools, catalog, context, max_steps)
     -- = the model cannot ask for more tools).
     let last be llm_step(question, [], ctx)
     give last["text"]
+
+-- ---------- the operator baseline ----------
+--
+-- Every Synfide OPERATOR agent must be able to learn the language it patches
+-- itself in. These tools are the in-app twin of the docs MCP / skill that
+-- coding agents use outside the process: same source of truth
+-- (docs.synsema.com), spoken over plain HTTP by synfide/docs.syn. They are
+-- FRAMEWORK-owned so new docs surface ships with releases instead of rotting
+-- in the user's entry (the old scaffold wired three of docs.syn's five
+-- exports and nothing would ever have updated it). Domain tools stay in the
+-- user's entry; the baseline is merged underneath by operator() — on a name
+-- collision the USER's tool wins, so the baseline can never mask domain code.
+
+task tool_synsema_docs(query)
+    require net("docs.synsema.com")
+    give docs.search(query)
+
+task tool_synsema_page(slug)
+    require net("docs.synsema.com")
+    give docs.get_page(slug)
+
+task tool_synsema_example(id)
+    require net("docs.synsema.com")
+    give docs.get_example(id)
+
+task tool_synsema_run(code)
+    require net("docs.synsema.com")
+    give docs.sandbox_run(code)
+
+task tool_synsema_verify(code)
+    require net("docs.synsema.com")
+    give docs.sandbox_test(code)
+
+task base_tools()
+    give {
+        "synsema_docs": tool_synsema_docs,
+        "synsema_page": tool_synsema_page,
+        "synsema_example": tool_synsema_example,
+        "synsema_run": tool_synsema_run,
+        "synsema_verify": tool_synsema_verify
+    }
+
+export task base_catalog()
+    give [
+        {"name": "synsema_docs", "describe": "Search the OFFICIAL Synsema language docs by keyword. Use this BEFORE writing or explaining any .syn code — you do not know Synsema from training; these docs are the truth. Returns matching pages as slug/title/description.", "params": ["query"]},
+        {"name": "synsema_page", "describe": "Fetch one Synsema doc page as Markdown by slug (slugs come from synsema_docs).", "params": ["slug"]},
+        {"name": "synsema_example", "describe": "Fetch one official runnable Synsema example by id (ids appear in doc pages and search results).", "params": ["id"]},
+        {"name": "synsema_run", "describe": "Run a Synsema snippet in the official sandbox and get its output. Use it to explore behavior while drafting code.", "params": ["code"]},
+        {"name": "synsema_verify", "describe": "Run a Synsema snippet's test blocks in the official sandbox and get pass/fail. ALWAYS verify .syn code here before presenting or proposing it.", "params": ["code"]}
+    ]
+
+export task base_instructions()
+    give "For anything involving Synsema code (.syn) you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before answering or proposing them."
+
+-- operator_tools/operator_catalog(domain) → baseline merged UNDER the user's
+-- domain: on a name collision the domain entry wins and the baseline's twin
+-- is dropped entirely (allow-list and catalog stay consistent).
+export task operator_tools(domain_tools)
+    let merged be {}
+    let bt be base_tools()
+    each k in keys(bt)
+        when not contains(domain_tools, k)
+            set merged[k] to bt[k]
+    each k in keys(domain_tools)
+        set merged[k] to domain_tools[k]
+    give merged
+
+export task operator_catalog(domain_catalog)
+    let names be apply(domain_catalog, (c) => c["name"])
+    let merged be domain_catalog
+    each c in base_catalog()
+        when not contains(names, c["name"])
+            set merged to merged + [c]
+    give merged
+
+-- operator(question, domain_tools, domain_catalog, domain_instructions,
+-- history, max_steps) → respond() over the user's domain PLUS the framework
+-- baseline. This is what the dashboard chat should run: the entry passes only
+-- its domain and the framework guarantees the floor — with no domain at all
+-- ({}, [], "") it is still an agent that can learn Synsema.
+export task operator(question, domain_tools, domain_catalog, domain_instructions, history, max_steps = 4)
+    let instr be base_instructions()
+    when text(domain_instructions) != ""
+        set instr to text(domain_instructions) + "\n" + instr
+    give respond(question, operator_tools(domain_tools), operator_catalog(domain_catalog), instr + "\n--- conversation so far ---\n" + text(history), max_steps)

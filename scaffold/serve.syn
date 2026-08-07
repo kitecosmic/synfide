@@ -31,7 +31,6 @@ use "./synfide/durable.syn" as durable
 use "./synfide/approvals.syn" as approvals
 use "./synfide/ui.syn" as ui
 use "./synfide/agent.syn" as agent
-use "./synfide/docs.syn" as docs
 
 -- ══════════════════ REPLACE ME: your executor ══════════════════
 -- Runs AFTER a human approves an action. Put your real code here: call your
@@ -64,38 +63,25 @@ task tool_list_actions()
         give "no actions proposed yet"
     give join(apply(ws, (w) => w["name"] + ": " + w["status"]), " · ")
 
-task tool_synsema_docs(query)
-    require net("docs.synsema.com")
-    give docs.search(query)
-
-task tool_synsema_page(slug)
-    require net("docs.synsema.com")
-    give docs.get_page(slug)
-
-task tool_synsema_verify(code)
-    require net("docs.synsema.com")
-    give docs.sandbox_test(code)
-
 let TOOLS be {
     "propose_action": tool_propose_action,
-    "list_actions": tool_list_actions,
-    "synsema_docs": tool_synsema_docs,
-    "synsema_page": tool_synsema_page,
-    "synsema_verify": tool_synsema_verify
+    "list_actions": tool_list_actions
 }
 let CATALOG be [
     {"name": "propose_action", "describe": "Queue an action for execution. ALWAYS call this when the user asks you to do, change, fix or run ANYTHING — never refuse for lack of access: this tool IS your access. A human approves it in their inbox and then it executes. `title` = short imperative description of the action.", "params": ["title"]},
-    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []},
-    {"name": "synsema_docs", "describe": "Search the OFFICIAL Synsema language docs by keyword. Use this BEFORE writing or explaining any .syn code — you do not know Synsema from training; these docs are the truth. Returns matching pages as slug/title/description.", "params": ["query"]},
-    {"name": "synsema_page", "describe": "Fetch one Synsema doc page as Markdown by slug (slugs come from synsema_docs).", "params": ["slug"]},
-    {"name": "synsema_verify", "describe": "Run a Synsema snippet's test blocks in the official sandbox and get pass/fail. ALWAYS verify .syn code here before presenting or proposing it.", "params": ["code"]}
+    {"name": "list_actions", "describe": "List every queued action and its current status (waiting/done/failed). Call it whenever the user asks what is pending or how things are going.", "params": []}
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. For anything involving Synsema code (.syn), you do NOT know the language from training: search synsema_docs, read synsema_page, and verify snippets with synsema_verify before answering. Answer briefly."
+let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. Answer briefly."
 
+-- agent.operator = YOUR domain (above) + the framework's baseline: the
+-- Synsema docs/sandbox tools and the "you don't know Synsema from training —
+-- search, read, verify" standing rule. The baseline updates with the
+-- framework; replace TOOLS/CATALOG freely — the agent never unlearns the
+-- language. (It rides the `require net("docs.synsema.com")` cap above.)
 task chat_agent(message, history)
-    give agent.respond(message, TOOLS, CATALOG, INSTRUCTIONS + "\n--- conversation so far ---\n" + history, 4)
+    give agent.operator(message, TOOLS, CATALOG, INSTRUCTIONS, history, 4)
 
 task heartbeat()
     let woken be durable.tick([{"prefix": "action-", "steps": action_steps()}])

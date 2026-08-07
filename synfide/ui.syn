@@ -35,6 +35,7 @@ use "./durable.syn" as durable
 use "./approvals.syn" as approvals
 use "./journal.syn" as journal
 use "./patches.syn" as patches
+use "./agent.syn" as agent
 
 -- HTML-escape for the few NON-template responses (plain-text errors).
 task esc(v)
@@ -688,6 +689,14 @@ export task llms_txt(cfg)
         set t to t + "## API\n- " + join(docs, "\n- ") + "\n"
     give respond(t, "text/plain")
 
+-- The chat's floor when the entry configures no responder: not a bare LLM
+-- but the framework's operator baseline — zero domain tools, yet it can
+-- still learn Synsema (docs + sandbox via agent.operator). Needs the entry
+-- cap `require net("docs.synsema.com")`; without it a tool call fails loudly
+-- into the chat, which is the honest signal to add the line.
+task default_responder(message, history)
+    give agent.operator(message, {}, [], "", history, 4)
+
 -- Bearer from the Authorization header ("Bearer x" → "x"), or nothing.
 task bearer_token(request)
     when not contains(request, "headers")
@@ -764,7 +773,7 @@ export task admin_get(path, request, query, cfg)
     when p == "chat/send"
         let responder be cfg_get(cfg, "responder", nothing)
         when responder == nothing
-            give chat_send(query.message)
+            give chat_send_with(query.message, default_responder)
         give chat_send_with(query.message, responder)
     when p == "inbox/ui"
         give html(inbox_page())
