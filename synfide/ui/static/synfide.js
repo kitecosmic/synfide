@@ -116,10 +116,40 @@
       };
       t.addEventListener('input', grow);
       grow();
+      // The send is a full navigation the agent may take SECONDS to answer.
+      // One flag stops the double-send (Enter again while loading used to
+      // submit twice); the composer goes readonly (a readonly field still
+      // submits its value — a disabled one would NOT); and the user's bubble
+      // plus an animated "thinking" bubble appear instantly so the wait
+      // reads as the agent working, never as a hang.
+      var sending = false;
+      var go = function () {
+        if (sending || !t.value.trim()) return;
+        sending = true;
+        t.readOnly = true;
+        var btn = t.form.querySelector('button');
+        if (btn) btn.disabled = true;
+        var chat = document.querySelector('.chat');
+        if (chat) {
+          var mine = document.createElement('div');
+          mine.className = 'msg user';
+          var ms = document.createElement('span');
+          ms.textContent = t.value;
+          mine.appendChild(ms);
+          chat.appendChild(mine);
+          var think = document.createElement('div');
+          think.className = 'msg assistant thinking';
+          think.innerHTML = '<span><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>';
+          chat.appendChild(think);
+          window.scrollTo(0, document.body.scrollHeight);
+        }
+        t.form.submit();
+      };
+      t.form.addEventListener('submit', function (e) { e.preventDefault(); go(); });
       t.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
-          if (t.value.trim()) t.form.submit();
+          go();
         }
       });
       t.focus();

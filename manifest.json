@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.12",
+  "version": "v0.3.13",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -59,7 +59,7 @@
     {
       "src": "synfide/ui/layouts/base.html",
       "dest": "synfide/ui/layouts/base.html",
-      "sha256": "04a6d77bce52bf7ae5a036a45eb85eb2a0629b705d2160226e454c2df66ae6e6"
+      "sha256": "45166ca9986b5d5442b074828b1bc5e405d51186c2412e30587a51c9928ea6aa"
     },
     {
       "src": "synfide/ui/layouts/auth.html",
@@ -124,12 +124,12 @@
     {
       "src": "synfide/ui/static/synfide.css",
       "dest": "synfide/ui/static/synfide.css",
-      "sha256": "fc040ee290e489aa3600bb05adf0d9f88331f9d8884c927819564c970402d55c"
+      "sha256": "3bccf7d315195b5a526a3b132e0fc98001fc526f2e1503c5a4cffd32ff835715"
     },
     {
       "src": "synfide/ui/static/synfide.js",
       "dest": "synfide/ui/static/synfide.js",
-      "sha256": "31044c8b7806dc6d39aa7021b099e5380064bbc7f103b20bdab06ddb8fd0d7ab"
+      "sha256": "a63673e1effb5b970313a2373761b3efe478aeecba60da773a252c57c244e0c4"
     },
     {
       "src": "synfide/GUIDE.md",
@@ -164,7 +164,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "94d4bffdb2975bc0d893ec9596fe15e76a96df135254bfd192a2b18ae0b5ea8c"
+      "sha256": "2c52e44b55bc80550fc0ea11c7fb852d06cef719d160124d8a41ca17e293b5e2"
     }
   ]
 }

@@ -108,6 +108,9 @@ header { background: var(--head); color: var(--head-ink); }
   padding: 1.1rem 1.2rem 4.5rem;
   align-items: start;
 }
+/* The sidebar stays put while long content (the chat) scrolls: Approvals is
+   always one click away, never a scroll-to-the-top away. */
+.side { position: sticky; top: .8rem; max-height: calc(100vh - 1.6rem); overflow-y: auto; }
 .side nav { display: flex; flex-direction: column; gap: .15rem; }
 .side nav a {
   padding: .45rem .7rem;
@@ -134,6 +137,7 @@ header { background: var(--head); color: var(--head-ink); }
 }
 @media (max-width: 860px) {
   .shell { grid-template-columns: 1fr; gap: .8rem; }
+  .side { position: static; max-height: none; overflow-y: visible; }
   .side nav { flex-direction: row; flex-wrap: wrap; }
   .side-note { display: none; }
 }
@@ -368,6 +372,18 @@ table { width: 100%; border-collapse: collapse; }
 .msg.user { justify-content: flex-end; }
 .msg.user span { background: var(--user); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant span { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+/* the "agent is thinking" bubble the composer appends while a send is in flight */
+.msg.thinking .dot {
+  display: inline-block; width: 6px; height: 6px; margin: 0 2px;
+  border-radius: 50%; background: var(--muted);
+  animation: think 1.2s infinite ease-in-out;
+}
+.msg.thinking .dot:nth-child(2) { animation-delay: .2s; }
+.msg.thinking .dot:nth-child(3) { animation-delay: .4s; }
+@keyframes think {
+  0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
 .send { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); }
 .send div { max-width: 1100px; margin: 0 auto; padding: .6rem 1.2rem; display: flex; gap: .5rem; }
 .send textarea {

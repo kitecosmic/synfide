@@ -56,12 +56,24 @@ task tool_propose_action(title)
     let r be durable.run("action-" + id, action_steps(), {"id": id, "title": title})
     give "action-" + id + " (\"" + title + "\") is PARKED in the approval inbox (/inbox/ui). It will execute by itself once a human approves — status now: " + r["status"]
 
+-- One action, one line — including WHAT the executor actually did once it
+-- ran, so "approved but nothing visible happened" can't stay a mystery: the
+-- placeholder executor SAYS it is a placeholder, right here.
+task describe_action(w)
+    let s be w["name"] + ": " + w["status"]
+    when w["status"] == "done"
+        let ctx be durable.status_of(w["name"])["ctx"]
+        when ctx != nothing
+            when contains(ctx, "execute")
+                set s to s + " — result: " + text(ctx["execute"])
+    give s
+
 task tool_list_actions()
     require memory("my-synfide-app")
     let ws be durable.workflows("action-")
     when length(ws) == 0
         give "no actions proposed yet"
-    give join(apply(ws, (w) => w["name"] + ": " + w["status"]), " · ")
+    give join(apply(ws, (w) => describe_action(w)), "\n")
 
 let TOOLS be {
     "propose_action": tool_propose_action,
@@ -73,7 +85,7 @@ let CATALOG be [
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. Answer briefly."
+let INSTRUCTIONS be "You are this app's operator agent. You DO have the ability to act: whenever the user asks you to do/change/fix/run something, call propose_action with a short title — the human approves it in their inbox and it then executes automatically. Never claim you lack access. BUT be honest about what execution DOES: approval runs this app's execute_action task, which starts as a PLACEHOLDER that only records the action — it builds nothing, sends nothing and buys nothing until a human wires real code into it (list_actions shows each action's actual result). Never promise a concrete outcome ('the site will be generated', 'the email will be sent') unless the human has confirmed the executor really implements it; instead say the action will be queued for approval and recorded. Answer briefly."
 
 -- agent.operator = YOUR domain (above) + the framework's baseline: the
 -- Synsema docs/sandbox tools and the "you don't know Synsema from training —
@@ -85,8 +97,11 @@ task chat_agent(message, history)
 
 task heartbeat()
     let woken be durable.tick([{"prefix": "action-", "steps": action_steps()}])
-    when length(woken) > 0
-        log "heartbeat woke: " + json_encode(woken)
+    -- log only what MOVED: a parked action re-waiting every tick is not news
+    -- (it used to flood the terminal once anything sat in the inbox)
+    let moved be where(woken, (w) => w["status"] != "waiting")
+    when length(moved) > 0
+        log "heartbeat: " + json_encode(moved)
 
 cron_every(15, heartbeat)
 
