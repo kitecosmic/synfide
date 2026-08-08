@@ -1206,7 +1206,21 @@ export task resolve_json(body)
     when d == nothing
         give respond("unknown approval: " + esc(text(body["id"])), "text/plain", 404)
     journal.record(who, "ui-decision", text(body["id"]) + " -> " + d["status"])
+    drive_patch_workflow(body["id"])
     give {"ok": true, "status": d["status"]}
+
+-- drive_patch_workflow(id) → an approved patch must APPLY NOW, not at the
+-- next heartbeat tick: a 15-second lag after clicking Approve read as "it
+-- does nothing" and slowed every build to the cron's pace. The heartbeat
+-- stays as the safety net (crash between approve and apply → the tick
+-- finishes the job).
+task drive_patch_workflow(id)
+    when starts_with(text(id), "patch-")
+        try
+            durable.run(text(id), agent.patch_steps(), {})
+        recover err
+            journal.record("ui", "patch-drive-failed", text(id) + " — " + text(err))
+    give nothing
 
 -- resolve_all_json(body) → approve EVERY plain pending approval in one go —
 -- the batch case is real (an agent building a site proposes several patches;
@@ -1227,6 +1241,7 @@ export task resolve_all_json(body)
             approvals.resolve(a["id"], true, who)
             journal.record(who, "ui-decision", text(a["id"]) + " -> approved (bulk)")
             set done to done + 1
+            drive_patch_workflow(a["id"])
         recover err
             set skipped to skipped + 1
     give {"ok": true, "approved": done, "skipped_protected": skipped}

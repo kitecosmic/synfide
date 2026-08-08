@@ -492,6 +492,40 @@ test "autopilot: el gate de un patch se auto-aprueba y aplica EN LA MISMA corrid
     assert(contains(read_file(apath), "autopiloto"), "el archivo existe")
     assert_eq(approvals.status("patch-" + aid)["decided_by"], "autopilot (window by tester)", "queda registrado QUIEN aprobo: el autopilot")
 
+test "aprobar = aplicar YA: resolve_json del inbox/chat dispara el apply sin esperar el heartbeat"
+    let did be "drv-" + text(now())
+    let dpath be "./.tmp-tests/drv-" + did + ".html"
+    patches.propose(did, dpath, nothing, "<p>instantaneo</p>", "approve drives apply")
+    patches.audit(did, approving_auditor, "")
+    durable.run("patch-" + did, agent.patch_steps(), {"id": did})
+    -- un solo click: el patch queda EN DISCO en la misma request
+    let r be ui.resolve_json({"id": "patch-" + did, "approved": true, "who": "tester"})
+    assert_eq(r["ok"], true)
+    assert(file_exists(dpath), "aplicado inmediatamente, sin tick de por medio")
+    assert_eq(patches.get(did)["status"], "applied")
+
+test "Approve all = aplicar TODOS ya: resolve_all_json deja los patches en disco"
+    let aid1 be "bulk-drv-a-" + text(now())
+    let aid2 be "bulk-drv-b-" + text(now())
+    patches.propose(aid1, "./.tmp-tests/" + aid1 + ".html", nothing, "<p>a</p>", "bulk a")
+    patches.audit(aid1, approving_auditor, "")
+    durable.run("patch-" + aid1, agent.patch_steps(), {"id": aid1})
+    patches.propose(aid2, "./.tmp-tests/" + aid2 + ".html", nothing, "<p>b</p>", "bulk b")
+    patches.audit(aid2, approving_auditor, "")
+    durable.run("patch-" + aid2, agent.patch_steps(), {"id": aid2})
+    ui.resolve_all_json({"who": "tester"})
+    assert(file_exists("./.tmp-tests/" + aid1 + ".html"), "primero en disco")
+    assert(file_exists("./.tmp-tests/" + aid2 + ".html"), "segundo en disco")
+
+test "patch_flow: un CREATE sobre archivo existente se RECHAZA al proponer (no muere en el apply)"
+    write_file("./.tmp-tests/ya-existe.html", "<p>original</p>")
+    let antes be length(patches.proposals())
+    let r be agent.patch_flow("./.tmp-tests/ya-existe.html", nothing, "<p>pisada</p>", "duplicate create probe")
+    assert(contains(r, "REFUSED"), "respuesta usable para el modelo: " + r)
+    assert(contains(r, "EDIT"), "y le dice el camino correcto")
+    assert_eq(length(patches.proposals()), antes, "ningun registro fantasma")
+    assert(contains(read_file("./.tmp-tests/ya-existe.html"), "original"), "el archivo intacto")
+
 task drive_patch_sin_file(wf, id)
     require memory("synfide-tests")
     require time

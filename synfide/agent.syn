@@ -150,6 +150,17 @@ export task patch_flow(path, old, new, why, guidelines = "")
     let o be old
     when o == ""
         set o to nothing
+    -- a CREATE against an existing file dies at apply time ("never
+    -- overwrites") — catch it at PROPOSE time with a usable answer instead
+    -- (the real case: an agent double-proposing the same new page)
+    when o == nothing
+        let exists be false
+        try
+            set exists to file_exists(path)
+        recover err
+            set exists to false
+        when exists
+            give "REFUSED: " + text(path) + " already EXISTS — a create patch never overwrites. Read it (read_project_file) and propose an EDIT with `old` matching its current text, or pick another path."
     let id be "p" + text(store.put("synfide-patch-n", store.get("synfide-patch-n", 0) + 1))
     patches.propose(id, path, o, new, why)
     patches.audit(id, patches.llm_auditor, guidelines)
