@@ -1,5 +1,5 @@
 {
-  "version": "v0.4.3",
+  "version": "v0.4.4",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -124,7 +124,7 @@
     {
       "src": "synfide/ui/static/synfide.css",
       "dest": "synfide/ui/static/synfide.css",
-      "sha256": "e63878a81434a9ba9a11ed3bb921e9a18f61ba95e5a22f98d04658fd07daaffa"
+      "sha256": "599a40a1ccce3ac2c3c65e93ce6b3b73aa4d3bc9d662d5ef254fd29f053f1e7d"
     },
     {
       "src": "synfide/ui/static/synfide.js",

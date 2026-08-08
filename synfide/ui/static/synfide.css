@@ -376,10 +376,18 @@ table { width: 100%; border-collapse: collapse; }
 .decide-all { display: flex; gap: .5rem; align-items: center; margin-bottom: .9rem; flex-wrap: wrap; }
 .decide-all .hint { font-size: 11.5px; color: var(--muted); }
 
-/* the session bar: lens search + session picker, quiet until needed */
+/* the session bar: lens search + session picker. STICKY — a chat with a
+   long history must never hide its own controls: the bar rides the top of
+   the viewport while the messages scroll under it (the composer is fixed at
+   the bottom; between both, the conversation). */
 .sessbar {
   display: flex; align-items: center; justify-content: space-between;
-  gap: .8rem; flex-wrap: wrap; margin-bottom: .9rem;
+  gap: .8rem; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 30;
+  background: var(--bg);
+  padding: .6rem 0 .55rem;
+  margin: -.6rem 0 .9rem;
+  border-bottom: 1px solid var(--line);
 }
 .sess-search {
   display: flex; align-items: center; gap: 0; margin: 0; flex: 1; max-width: 340px;
