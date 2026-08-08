@@ -1,0 +1,49 @@
+-- Your Synfide APP SERVER — the process that RUNS the agent's backend
+-- (backend.syn) at /api/*, SEPARATE from the control plane on purpose: this
+-- one can crash, stop and restart at will, and the agent (alive in
+-- serve.syn) never goes down with it. A backend.syn that fails at boot
+-- kills THIS process only — the agent reads its logs and patches the fix.
+--
+--   synsema daemon start app_server.syn      ← run once; from then on the
+--                                              agent restarts it by itself
+--   (dev alternative: synsema serve app_server.syn in a second terminal)
+--
+-- serve.syn (the control plane / edge) proxies /api/* here (127.0.0.1:9000).
+--
+-- THIS file is the GRANT side of the capability deal: call_tool runs
+-- backend.handle with (what handle DECLARES ∩ what YOU grant here). The
+-- agent's patches can only REQUEST capabilities — a new `require` in
+-- backend.syn works once you add the matching grant HERE, by hand. The
+-- auditor refuses patches that touch this file: grants are typed by humans.
+intent: "Run the agent-built backend (backend.syn) at /api/* — isolated, restartable, least-privilege"
+
+require memory("my-synfide-app-backend")
+require serve(9000)
+require time
+require random
+-- ══ REPLACE ME: grants for the agent's backend (each one reviewed by YOU) ══
+-- require net("api.your-service.com")
+-- require file("./site/data/*")
+
+use "./backend.syn" as backend
+
+-- handle() runs under call_tool: ONLY its declared capabilities, and a bug
+-- answers 500 with the error text — it never takes this process down once
+-- it has booted.
+task backend_call(method, path, query, body)
+    let ctx be {"method": method, "path": text(path), "query": query, "body": body}
+    try
+        give call_tool(backend.handle, {"ctx": ctx})
+    recover err
+        give respond("backend error: " + text(err), "text/plain", 500)
+
+-- The edge appends the full incoming path, so the /api prefix arrives here.
+serve on 9000
+    route "GET /api"
+        give backend_call("GET", "", query, nothing)
+
+    route "GET /api/*path"
+        give backend_call("GET", params.path, query, nothing)
+
+    route "POST /api/*path"
+        give backend_call("POST", params.path, query, request.json)

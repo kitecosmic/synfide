@@ -168,9 +168,38 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   framework-owned; the POWER stays in the entry: a thin wrapper tool
   declares `memory`/`time`/`llm` (call_tool least-privilege) and the entry
   grants the file scope patches may land in (scaffold default:
-  `require file("./site/*")`). An empty `old` counts as CREATE (models say
-  "" where the contract says nothing). `agent.patches_summary()` → one line
-  per proposal for the agent's list tool.
+  `require file("./site/*")` + `file("./backend.syn")`). An empty `old`
+  counts as CREATE (models say "" where the contract says nothing).
+  `agent.patches_summary()` → one line per proposal for the agent's list
+  tool. Patching a `.syn` path leaves a restart marker (see below) and the
+  flow's answer tells the model a restart is needed.
+- **The agent's REAL BACKEND — `backend.syn` at `/api/*`, in its OWN
+  process.** Two services, one public host:
+  - **Control plane** (`serve.syn`, :8080) — admin, agent, patches, /site,
+    and the EDGE: `/api` + `/api/*path` + `POST /api/*path` carry
+    `proxy to "http://127.0.0.1:9000"` (entry cap `net("127.0.0.1")`). It
+    NEVER loads agent code — a broken backend.syn cannot brick the agent
+    that has to fix it.
+  - **App server** (`app_server.syn`, :9000, under `synsema daemon`) — the
+    only process that `use`s `backend.syn`. It mounts
+    `call_tool(backend.handle, {"ctx": ctx})` in a try/recover (bug → 500
+    with the error text; note call_tool takes NAMED params). handle() runs
+    with (its top-of-body `require`s ∩ app_server's grants): the agent's
+    patches REQUEST capabilities — visible in the diff, scrutinized by the
+    auditor (no .env, no unrelated hosts, never exec) — and the human
+    GRANTS them by hand in app_server.syn (which the auditor refuses to let
+    patches touch). Two keys.
+  - **Self-healing lifecycle** (entry caps `exec("synsema")` +
+    `net("127.0.0.1")`): the agent's tools `restart_backend`
+    (`synsema daemon restart app_server.syn`; falls back to `start`; clears
+    the restart marker), `try_backend` (HTTP probe of /api through :9000)
+    and `backend_logs` (`daemon logs` tail). A backend.syn that fails at
+    BOOT kills only the app server: the agent reads the boot error in
+    backend_logs, patches the fix, restarts — no external agent needed.
+  - Applying any `.syn` patch stores a marker (`patches.apply`) and the
+    admin shows a "not restarted yet" banner until `restart_backend`
+    succeeds (or the control plane itself reboots) — same amber pattern as
+    the env editor.
 
 ### patches — self-modification with a seatbelt (needs: memory, time; apply: file.write scope; llm_auditor: llm)
 - The loop the framework packages: an agent PROPOSES an exact change to one of

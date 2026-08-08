@@ -26,6 +26,9 @@ require file.read("./.env.example")
 require file.read("./synfide/ui/static/*")
 require file.read(".")                       -- root dir NODE only (names, no contents): the upgrade banner lists *.new files
 require file("./site/*")                     -- the agent's workspace: patches apply here (after audit + YOUR approval) and /site serves it live
+require file("./backend.syn")                -- the agent's BACKEND file: patchable under the same audit + approval (it RUNS in app_server.syn, not here)
+require net("127.0.0.1")                     -- the edge: /api/* proxies to the app server (and try_backend probes it)
+require exec("synsema")                      -- the agent restarts/reads logs of the app server: synsema daemon restart/logs app_server.syn
 
 use "./synfide/store.syn" as store
 use "./synfide/durable.syn" as durable
@@ -87,7 +90,7 @@ task tool_propose_patch(path, old, new, why)
     require memory("my-synfide-app")
     require time
     require llm
-    give agent.patch_flow(path, old, new, why, "only files under site/ — reject anything touching serve.syn, .env, credentials or synfide/")
+    give agent.patch_flow(path, old, new, why, "only files under site/ or backend.syn — reject anything touching serve.syn, app_server.syn (capability grants are typed by humans), .env, credentials or synfide/. In backend.syn scrutinize every `require` line: reject file scopes reaching .env or credentials, reject net hosts unrelated to the change's stated purpose, reject exec entirely.")
 
 task tool_list_patches()
     require memory("my-synfide-app")
@@ -95,6 +98,7 @@ task tool_list_patches()
 
 task tool_read_project_file(path)
     require file.read("./site/*")
+    require file.read("./backend.syn")
     when not file_exists(path)
         give "no such file: " + path
     give read_file(path)
@@ -103,6 +107,54 @@ task tool_read_project_file(path)
 task tool_preview_page(path)
     require file.read("./site/*")
     give ui.preview_file("./site", path)
+
+-- ══ the agent's HANDS ON THE APP SERVER: probe, restart, read the logs ══
+-- The backend runs in its OWN process (app_server.syn, port 9000, under
+-- `synsema daemon`) so it can die without taking the agent down. These three
+-- tools close the self-healing loop: try it → restart it → when it will not
+-- even boot, read its logs, patch the fix, restart again.
+task tool_try_backend(method, path, body)
+    require net("127.0.0.1")
+    require time
+    let url be "http://127.0.0.1:9000/api"
+    when text(path) != ""
+        set url to url + "/" + text(path)
+    try
+        let r be nothing
+        when text(method) == "POST"
+            set r to fetch(url, "POST", {"Content-Type": "application/json"}, json_encode(body))
+        otherwise
+            set r to fetch(url, "GET")
+        give "HTTP " + text(r["status"]) + " — " + slice(text(r["body"]), 0, 3000)
+    recover err
+        give "backend UNREACHABLE (" + text(err) + ") — down or restarting: run restart_backend; if it will not start, read backend_logs"
+
+task tool_restart_backend()
+    require exec("synsema")
+    require memory("my-synfide-app")
+    require time
+    -- stop + start, NOT `daemon restart`: restart re-spawns but does not
+    -- detach back to the caller on Windows (it hangs). stop is idempotent —
+    -- a non-zero exit (already stopped / never started) is fine.
+    try
+        run("synsema", ["daemon", "stop", "app_server.syn"], 30)
+    recover err
+        log "backend stop: " + text(err)
+    let r be run("synsema", ["daemon", "start", "app_server.syn"], 60)
+    when r["exit_code"] == 0
+        store.del("synfide-syn-applied")
+        give "backend (re)started: " + trim(text(r["stdout"])) + " — now PROVE your endpoints with try_backend (a boot crash would show as UNREACHABLE: then read backend_logs)"
+    give "backend did NOT start (exit " + text(r["exit_code"]) + "): " + trim(text(r["stderr"])) + " — read backend_logs, find the error, patch the fix, restart again"
+
+task tool_backend_logs()
+    require exec("synsema")
+    let r be run("synsema", ["daemon", "logs", "app_server.syn"], 30)
+    let out be text(r["stdout"]) + text(r["stderr"])
+    when length(out) > 4000
+        give "…" + slice(out, length(out) - 4000, length(out))
+    when trim(out) == ""
+        give "no logs yet — the app server may never have started: run restart_backend"
+    give out
 
 task tool_journal_tail()
     require memory("my-synfide-app")
@@ -115,11 +167,17 @@ let TOOLS be {
     "list_patches": tool_list_patches,
     "read_project_file": tool_read_project_file,
     "preview_page": tool_preview_page,
-    "journal_tail": tool_journal_tail
+    "journal_tail": tool_journal_tail,
+    "try_backend": tool_try_backend,
+    "restart_backend": tool_restart_backend,
+    "backend_logs": tool_backend_logs
 }
 let CATALOG be [
-    {"name": "propose_patch", "describe": "Create or edit ONE real file of this app under site/ — the finished site serves LIVE at /site. `path` like \"site/index.html\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES. This is how you build: never paste site code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
-    {"name": "read_project_file", "describe": "Read one of this app's files under site/ (path like \"site/index.html\"). Do it before EDITING a file so `old` matches its current text exactly.", "params": ["path"]},
+    {"name": "propose_patch", "describe": "Create or edit ONE real file of this app: pages under site/ (live at /site) or the backend code in backend.syn (its handle() serves /api/*). `path` like \"site/index.html\" or \"backend.syn\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES (.syn code additionally needs a server restart to load). This is how you build: never paste project code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
+    {"name": "read_project_file", "describe": "Read one of this app's files: anything under site/ or \"backend.syn\". ALWAYS do it before EDITING a file so `old` matches its current text exactly.", "params": ["path"]},
+    {"name": "try_backend", "describe": "Call your OWN backend (the app server): `method` GET or POST, `path` like \"ping\", `body` = JSON map or empty. ALWAYS prove an endpoint works with this after restart_backend. UNREACHABLE means the app server is down — restart_backend, then backend_logs if it will not come up.", "params": ["method", "path", "body"]},
+    {"name": "restart_backend", "describe": "Restart (or first-start) the app server that runs backend.syn. Call it YOURSELF right after a backend.syn patch applies — .syn code loads at boot, and the restart touches ONLY the app server, never this control plane. Then prove the change with try_backend.", "params": []},
+    {"name": "backend_logs", "describe": "The app server's own logs. When restart_backend reports it did not start, the boot error is HERE — read it, patch the fix in backend.syn, restart again. You repair your own crashes; nobody external is needed.", "params": []},
     {"name": "list_patches", "describe": "Every file patch and its status (audited-ok/waiting/applied/rejected + why). Check it to know what the human approved instead of asking them.", "params": []},
     {"name": "preview_page", "describe": "See EXACTLY what /site serves for a path (\"\" = the homepage, \"style.css\", \"productos.html\"...). ALWAYS check your work with this after patches apply — a 404 here means the file is missing, truncated output still means the full file serves fine.", "params": ["path"]},
     {"name": "journal_tail", "describe": "The last 30 events of this app's journal: patches applied or failed, tool dispatches, approvals, errors. Your first stop when something seems off or when the human says something didn't work.", "params": []},
@@ -128,7 +186,7 @@ let CATALOG be [
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files: everything under site/ is yours to create and edit via propose_patch, and it serves live at /site as soon as the human approves. After your patches apply, CHECK your own work: preview_page shows what /site really serves, journal_tail shows what happened (applies, failures, decisions) — verify first, then report. For EXTERNAL side effects (emails, API calls, payments) use propose_action — and be honest that its executor starts as a placeholder that only records the action (list_actions shows each action's real result) until a human wires real code into execute_action."
+let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files via propose_patch: pages under site/ serve live at /site the moment the human approves; REAL BACKEND ENDPOINTS live in backend.syn, whose handle() serves /api/* from its OWN process (the app server) — grow it with patches. The `require` lines at the top of handle() are capability REQUESTS: the human reviews them in your diff, and they only work once the human also adds the grant in app_server.syn (say so when you request one). Your backend lifecycle is YOURS: after a backend.syn patch applies, call restart_backend yourself (it touches only the app server, never you), then PROVE the endpoint with try_backend; if the app server will not boot, read backend_logs, patch the fix, restart again — you repair your own crashes. After site patches, CHECK with preview_page; journal_tail shows what happened. For EXTERNAL side effects (emails, payments) use propose_action — honest note: its executor starts as a placeholder that only records (list_actions shows each result) until a human wires real code into execute_action."
 
 -- agent.operator = YOUR domain (above) + the framework's baseline: the
 -- Synsema docs/sandbox tools, the autonomy rules ("build it NOW, report what
@@ -151,6 +209,7 @@ cron_every(15, heartbeat)
 
 when not ui.users_exist()
     log "FIRST RUN: open http://localhost:8080/setup — the setup code will print HERE when you do."
+    log "backend: `synsema daemon start app_server.syn` starts the /api process (or ask the agent — it has restart_backend)."
 
 -- ══ REPLACE ME: your policy for the framework surface ══
 -- All keys optional. api_docs feeds /admin/endpoints and /llms.txt — extend it
@@ -162,6 +221,7 @@ let CONFIG be {
     "about": "Synfide app — agent chat, human approval inbox, durable actions",
     "api_docs": [
         "GET /site — the agent-built site (real files under ./site, written by audited + approved patches).",
+        "GET|POST /api/* — the agent-built BACKEND (backend.syn in its own app server process; this edge proxies it).\n  curl localhost:8080/api/ping",
         "GET /chat/send?message=... — ask the agent (it can patch files and queue actions); then GET /chat shows the reply.\n  curl -L 'localhost:8080/chat/send?message=hello'",
         "GET /inbox — approvals waiting for a human, as JSON (session or Bearer SYNFIDE_ADMIN_TOKEN).\n  curl localhost:8080/inbox -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>'",
         "POST /inbox/:id — decide one.\n  curl -X POST localhost:8080/inbox/<id> -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>' -H 'Content-Type: application/json' -d '{\"approved\":true,\"who\":\"me\"}'",
@@ -190,6 +250,21 @@ serve on 8080
 
     route "GET /site/*path"
         give ui.static_file("./site", params.path)
+
+    -- the agent-built BACKEND runs in its OWN process (app_server.syn, port
+    -- 9000, under `synsema daemon`): it can crash and restart without ever
+    -- touching this control plane. This edge proxies it — app server down →
+    -- /api answers the proxy error while the agent (alive HERE) reads
+    -- backend_logs and patches the fix itself.
+    route "GET /api"
+        proxy to "http://127.0.0.1:9000"
+
+    route "GET /api/*path"
+        proxy to "http://127.0.0.1:9000"
+
+    route "POST /api/*path"
+        rate_limit 60 per minute
+        proxy to "http://127.0.0.1:9000"
 
     -- ── the framework surface (leave these three alone) ──
     route "GET /"

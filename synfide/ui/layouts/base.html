@@ -31,6 +31,12 @@
     <p class="side-note">terminal: <code>synsema run synfide/console.syn</code><br><a href="/logout">Sign out</a></p>
   </aside>
   <main>
+{ when needs_restart }
+<p class="warn-banner"><b>New .syn code was applied but its process has not restarted yet.</b>
+Synsema loads code at boot. Backend code (backend.syn): ask the agent in <a href="/chat">Chat</a> —
+it restarts the app server itself (<code>restart_backend</code>) — or run
+<code>synsema daemon restart app_server.syn</code>. Until then /api answers with the OLD code.</p>
+{ end }
 { when has_new_files }
 <p class="warn-banner"><b>An upgrade left { new_files } in the project root.</b>
 Your edited file(s) were NOT touched — the new release's copy landed beside each one as

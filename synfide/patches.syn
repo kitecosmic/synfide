@@ -197,6 +197,11 @@ export task apply(id)
         raise("patches: apply failed for \"" + id + "\": " + text(err))
     set p["status"] to "applied"
     set p["applied_at"] to text(now())
+    -- .syn code loads at BOOT: leave a marker so the admin shell can show
+    -- "restart to activate" until the process actually reboots (the shell
+    -- clears it when it finds the marker older than its own boot).
+    when ends_with(p["path"], ".syn")
+        store.put("synfide-syn-applied", {"at": now(), "path": p["path"]})
     let r be store.put(PREFIX + id, p)
     journal.record("patches", "patch-applied", id + " on " + p["path"])
     give r

@@ -142,7 +142,10 @@ export task patch_flow(path, old, new, why, guidelines = "")
     when p["status"] != "audited-ok"
         give "patch " + id + " (" + text(p["path"]) + ") REJECTED by the auditor: " + text(p["audit_reasons"]) + " — fix the concern and propose again"
     let r be durable.run("patch-" + id, patch_steps(), {"id": id})
-    give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human in the Approvals inbox; once approved it applies to disk by itself. Status: " + r["status"]
+    let note be ""
+    when ends_with(text(p["path"]), ".syn")
+        set note to " NOTE: .syn code loads at boot — after it applies, the human must RESTART the server before the new code answers."
+    give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human in the Approvals inbox; once approved it applies to disk by itself. Status: " + r["status"] + note
 
 -- patches_summary() → one line per proposal, newest last — the agent's eyes
 -- on what got approved, applied or rejected.

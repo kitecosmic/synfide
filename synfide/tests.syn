@@ -456,6 +456,52 @@ test "patch loop: un gate DENEGADO nunca llega al filesystem"
     assert_eq(r["status"], "failed", "gate denegado -> el step falla, no aplica")
     assert(not file_exists("./.tmp-tests/site-denied.html"), "el filesystem quedo intacto")
 
+-- ---------- backend real: marker de restart + least-privilege ----------
+
+test "patches: aplicar un .syn deja el marker de restart; un no-.syn no lo toca"
+    store.del("synfide-syn-applied")
+    let mid be "syn-" + text(now())
+    patches.propose(mid, "./.tmp-tests/mod-" + mid + ".syn", nothing, "task t()\n    give 1\n", "backend probe")
+    patches.audit(mid, approving_auditor, "")
+    patches.apply(mid)
+    let mark be store.get("synfide-syn-applied", nothing)
+    assert(mark != nothing, "el marker quedo")
+    assert(mark["at"] > 0)
+    -- y el shell lo muestra como banner hasta el proximo boot
+    let page be ui.env_page([], false)
+    assert(contains(page, "not restarted yet"), "el banner de restart aparece")
+    store.del("synfide-syn-applied")
+    let page2 be ui.env_page([], false)
+    assert(not contains(page2, "not restarted yet"), "sin marker no hay banner")
+    -- un patch que no es .syn no marca nada
+    let hid be "html-" + text(now())
+    patches.propose(hid, "./.tmp-tests/mod-" + hid + ".html", nothing, "<p>x</p>", "html probe")
+    patches.audit(hid, approving_auditor, "")
+    patches.apply(hid)
+    assert_eq(store.get("synfide-syn-applied", nothing), nothing, "html no exige restart")
+
+task fake_handle(ctx)
+    require time
+    give {"ok": true, "path": ctx["path"], "at": now()}
+
+task greedy_handle(ctx)
+    give read_file("./.env.example")
+
+test "backend por call_tool: handle corre SOLO con sus requires — lo no declarado se niega"
+    -- call_tool recibe args como mapa de PARAMETROS NOMBRADOS: {"ctx": ...}
+    let r be call_tool(fake_handle, {"ctx": {"method": "GET", "path": "ping"}})
+    assert_eq(r["ok"], true)
+    assert_eq(r["path"], "ping")
+    -- un handle que intenta leer disco SIN declararlo: denegado aunque el
+    -- programa (estos tests) SI tenga la capability
+    let denied be false
+    try
+        call_tool(greedy_handle, {"ctx": {"path": "x"}})
+    recover err
+        set denied to true
+        assert(contains(text(err), "apability"), "la negativa es de capability: " + text(err))
+    assert(denied, "call_tool nego el acceso no declarado")
+
 -- ---------- static_file (el sitio del agente, servido en vivo) ----------
 
 test "static_file: sirve html/css con su content-type, index por default, y 404 en lo ausente"

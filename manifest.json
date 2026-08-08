@@ -1,5 +1,5 @@
 {
-  "version": "v0.3.15",
+  "version": "v0.4.0",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -39,7 +39,7 @@
     {
       "src": "synfide/patches.syn",
       "dest": "synfide/patches.syn",
-      "sha256": "7dcaae73c52edb8553fdd0f1d2cae7f633c65a7b1bb803890120db0e790b5e3a"
+      "sha256": "80892159363cd7c097a3f7877c5f274ad259d34979a23b98bd17d04a54943d05"
     },
     {
       "src": "synfide/docs.syn",
@@ -49,17 +49,17 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "7747a58c568a47469e9146f2e9dbf624945cd903330e332e20db4272fbf2e251"
+      "sha256": "1db79ad53ada21a0a39a63d24e9f269f25cbc6fb8f27caff7e1dcac99f7d79db"
     },
     {
       "src": "synfide/agent.syn",
       "dest": "synfide/agent.syn",
-      "sha256": "07e1bd852b07c131932a337eca650c8a3cae9f42e749871a1d07704815bb6d0c"
+      "sha256": "1cdcae1d5bc9269088186d7e9475dee470ace1c56a32a55614ff2f29fa094168"
     },
     {
       "src": "synfide/ui/layouts/base.html",
       "dest": "synfide/ui/layouts/base.html",
-      "sha256": "45166ca9986b5d5442b074828b1bc5e405d51186c2412e30587a51c9928ea6aa"
+      "sha256": "d715f9de6cf2e12adaa90ff8efa59881ff043bee7eef7ecf09f1eb36b1e7ee2c"
     },
     {
       "src": "synfide/ui/layouts/auth.html",
@@ -134,7 +134,7 @@
     {
       "src": "synfide/GUIDE.md",
       "dest": "synfide/GUIDE.md",
-      "sha256": "f083bf8a77ee361a2e76efb9f3db163e12de85edddb5b64a328a74e1b6b7f601"
+      "sha256": "dc340e284e86dbc2882da7014da7180fe70747c395d24a7dfdd5209161d03ea5"
     },
     {
       "src": "synfide/console.syn",
@@ -144,7 +144,7 @@
     {
       "src": "synfide/tests.syn",
       "dest": "synfide/tests.syn",
-      "sha256": "89af78db6401e66a73452eb63f70f8f91a8ff8f2a3f5f7761d3c8725ba8ed690"
+      "sha256": "3d15cf5e2fb961379ffc9e4f801523ed20b290618bfc247aa77c392f697b0aba"
     },
     {
       "src": "scaffold/AGENTS.md",
@@ -157,6 +157,16 @@
       "sha256": "331ed7b78dfad37ae625db5ab36a26232a6cec4a34da958fed1c7273e2a2e160"
     },
     {
+      "src": "scaffold/backend.syn",
+      "dest": "backend.syn",
+      "sha256": "e35c23700a8fe99f6bae15d9a800a06326dbc1409e286d8a7992337e1fc833aa"
+    },
+    {
+      "src": "scaffold/app_server.syn",
+      "dest": "app_server.syn",
+      "sha256": "36fc8152a43777e133993224d03c098e03bd7706b6c17ec6eec5240710c15297"
+    },
+    {
       "src": "scaffold/app.syn",
       "dest": "app.syn",
       "sha256": "824eb0cc920c54dfab9770aae0d0c8e8d64c4bf1f3d6b281637d69493c08ac80"
@@ -164,7 +174,7 @@
     {
       "src": "scaffold/serve.syn",
       "dest": "serve.syn",
-      "sha256": "bd0370446aa40cd855ec4e77b1a20838703cf9f15cefefa7d00bfa5275312c52"
+      "sha256": "bba85352aeeb4dbc286ff8b23b6a1484d95e4cf5c119e33c9585d8fb143a1f19"
     }
   ]
 }

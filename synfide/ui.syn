@@ -37,6 +37,18 @@ use "./journal.syn" as journal
 use "./patches.syn" as patches
 use "./agent.syn" as agent
 
+-- When this module loaded = when this PROCESS booted. The shell compares it
+-- against the "a .syn patch was applied" marker: marker newer than the boot
+-- → the new code is NOT loaded yet, show the restart banner; marker older →
+-- the restart already happened, clear it. Entries without `require time`
+-- degrade to 0 (they can't run the framework's durable core anyway).
+task boot_probe()
+    try
+        give now()
+    recover err
+        give 0
+let BOOT_AT be boot_probe()
+
 -- HTML-escape for the few NON-template responses (plain-text errors).
 task esc(v)
     let s be text(v)
@@ -56,6 +68,14 @@ task shell_data(title, active, crumb, refresh, scroll)
     let wfs be durable.workflows("")
     let pending_n be length(approvals.pending())
     let leftovers be upgrade_leftovers()
+    let syn_mark be store.get("synfide-syn-applied", nothing)
+    let needs_restart be false
+    when syn_mark != nothing
+        when syn_mark["at"] > BOOT_AT
+            set needs_restart to true
+        otherwise
+            -- the process rebooted after the apply: the new code IS loaded
+            store.del("synfide-syn-applied")
     let d be {
         "title": title,
         "crumb": crumb,
@@ -74,7 +94,8 @@ task shell_data(title, active, crumb, refresh, scroll)
         "refresh": refresh,
         "scroll": scroll,
         "new_files": join(leftovers, " · "),
-        "has_new_files": length(leftovers) > 0
+        "has_new_files": length(leftovers) > 0,
+        "needs_restart": needs_restart
     }
     set d["nav_" + active] to "on"
     give d

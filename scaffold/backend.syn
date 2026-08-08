@@ -1,0 +1,30 @@
+-- Your agent-owned BACKEND — real .syn code, served at /api/*.
+--
+-- The operator agent GROWS this file via propose_patch (audited + approved
+-- by you, like everything else). app_server.syn — a SEPARATE process — runs
+-- it with call_tool, so handle() gets ONLY the capabilities declared at the
+-- top of its body AND granted in app_server.syn: every new `require` the
+-- agent wants shows up in a patch diff for YOU, and works only after you
+-- add the grant in app_server.syn by hand. Agent-written code, least
+-- privilege, two human keys.
+--
+-- .syn code loads at BOOT — but only app_server.syn's boot: after a patch
+-- here applies, the agent restarts that process by itself (restart_backend)
+-- and the control plane (the agent, the admin) never blinks. If this file
+-- breaks the boot, only app_server dies: the agent reads backend_logs and
+-- patches the fix.
+--
+-- Shape of ctx: {"method": "GET"|"POST", "path": "ping", "query": {...},
+-- "body": <json map or nothing>}. Give back a map (served as JSON) or a
+-- respond(...) node for full control.
+
+use "./synfide/store.syn" as store
+
+export task handle(ctx)
+    require memory("my-synfide-app-backend")
+    require time
+    let path be text(ctx["path"])
+    -- ══ the agent grows real endpoints here ══
+    when path == "" or path == "ping"
+        give {"ok": true, "service": "backend alive", "hint": "ask the agent in /chat to build real endpoints here"}
+    give respond("no such endpoint: " + path, "text/plain", 404)
