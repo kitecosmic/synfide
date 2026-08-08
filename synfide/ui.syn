@@ -580,13 +580,25 @@ export task endpoints_page(api_docs)
     set d["has_docs"] to length(api_docs) > 0
     give body of render("synfide/ui/pages/endpoints.html", d)
 
+-- ---------- STORE PREFIX REGISTRY ----------
+-- Every store key family the framework owns — CHECK THIS LIST before adding
+-- a new one (a collision between chat sessions and LOGIN sessions once let
+-- the chat treat auth tokens as conversations; never again):
+--   synfide-user:<name>        auth users            synfide-sess:<token>    LOGIN sessions
+--   synfide-chatsess:<sid>     CHAT sessions         synfide-chatsess-active / -n
+--   synfide-chat:<sid>:<n>     chat messages         synfide-chat-n:<sid>    counters
+--   synfide-appr:<id>          approvals             synfide-wf:/-wf-ctx:    durable
+--   synfide-jrn:<n>            journal               synfide-patch:<id>      patches
+--   synfide-env-saved:/env-code  env editor          synfide-syn-applied     restart marker
+--   synfide-autopilot          standing approval     synfide-setup-code      first run
+
 -- ---------- chat: SESSIONS ----------
 -- The chat is not one eternal thread — it is sessions: first-class records
 -- the admin opens, switches, closes (archived, read-only) and SEARCHES.
 -- One session is ACTIVE at a time and it only changes when the human
 -- explicitly switches: a task asked in a session gets its answers, results
 -- and follow-ups in THAT session — you always come back to the same chat.
--- Keys: synfide-sess:<sid> (record) · synfide-sess-active (pointer) ·
+-- Keys: synfide-chatsess:<sid> (record) · synfide-chatsess-active (pointer) ·
 -- synfide-chat:<sid>:<n> (message) · synfide-chat-n:<sid> (counter).
 -- Histories from before sessions existed (synfide-chat:<n>) are adopted
 -- once into the first session — an upgrade never loses a conversation.
@@ -605,7 +617,7 @@ task session_norm(s)
 
 task sessions_all()
     let ok be []
-    each kv in store.list("synfide-sess:")
+    each kv in store.list("synfide-chatsess:")
         try
             set ok to ok + [session_norm(kv["value"])]
         recover err
@@ -613,7 +625,7 @@ task sessions_all()
     give sort_by(ok, (s) => s["created_at"])
 
 task session_get(sid)
-    let s be store.get("synfide-sess:" + text(sid), nothing)
+    let s be store.get("synfide-chatsess:" + text(sid), nothing)
     when s == nothing
         give nothing
     try
@@ -622,19 +634,19 @@ task session_get(sid)
         give nothing
 
 task session_new(title)
-    let n be store.get("synfide-sess-n", 0) + 1
-    store.put("synfide-sess-n", n)
+    let n be store.get("synfide-chatsess-n", 0) + 1
+    store.put("synfide-chatsess-n", n)
     let sid be "s" + text(n)
     let t be trim(text(title))
     when t == "" or t == "nothing"
         set t to "session " + text(n)
-    store.put("synfide-sess:" + sid, {"id": sid, "title": t, "status": "open", "created_at": now()})
-    store.put("synfide-sess-active", sid)
+    store.put("synfide-chatsess:" + sid, {"id": sid, "title": t, "status": "open", "created_at": now()})
+    store.put("synfide-chatsess-active", sid)
     give sid
 
 -- ensure_session() → the active session's id, creating/adopting as needed.
 task ensure_session()
-    let cur be store.get("synfide-sess-active", nothing)
+    let cur be store.get("synfide-chatsess-active", nothing)
     when cur != nothing
         let s be session_get(cur)
         when s != nothing
@@ -644,7 +656,7 @@ task ensure_session()
     let open be where(sessions_all(), (s) => s["status"] == "open")
     when length(open) > 0
         let last be open[length(open) - 1]
-        store.put("synfide-sess-active", last["id"])
+        store.put("synfide-chatsess-active", last["id"])
         give last["id"]
     -- first session ever: ADOPT any pre-session history so upgrades keep it
     let old be where(store.list("synfide-chat:"), (kv) => not contains(slice(kv["key"], 13, length(kv["key"])), ":"))
@@ -766,7 +778,7 @@ export task chat_page(sess = "", q = "")
         when ws != nothing
             set sid to want
             when ws["status"] == "open"
-                store.put("synfide-sess-active", want)
+                store.put("synfide-chatsess-active", want)
     let s be session_get(sid)
     let can_send be s["status"] == "open"
     let es be chat_entries(sid)
@@ -821,9 +833,9 @@ export task session_close_json(body)
         give not_found("no such session: " + esc(sid))
     set s["status"] to "closed"
     set s["closed_at"] to now()
-    store.put("synfide-sess:" + sid, s)
-    when store.get("synfide-sess-active", nothing) == sid
-        store.del("synfide-sess-active")
+    store.put("synfide-chatsess:" + sid, s)
+    when store.get("synfide-chatsess-active", nothing) == sid
+        store.del("synfide-chatsess-active")
     journal.record("web", "chat-session-closed", sid + " (" + text(s["title"]) + ")")
     give {"ok": true, "id": sid}
 
@@ -1031,8 +1043,26 @@ export task preview_file(dir, relpath, max_chars = 4000)
         give slice(b, 0, max_chars) + "\n… (truncated at " + text(max_chars) + " chars — the full file IS served)"
     give b
 
--- admin_get(path, request, query, cfg) → the full GET surface.
+-- page_error(path, err) → the LAST line of defense: a bug anywhere in the
+-- surface must never reach the human as a naked 500 envelope. The error is
+-- journaled (best effort) and answered as a readable page that names it —
+-- and only THAT page fails; the rest of the admin keeps working.
+task page_error(path, err)
+    try
+        journal.record("ui", "page-error", "/" + text(path) + " — " + text(err))
+    recover jerr
+        log "page-error (journal unavailable): /" + text(path) + " — " + text(err)
+    give respond("This page failed to render: /" + text(path) + "\n\n  " + text(err) + "\n\nThe error is journaled (/admin/journal). The rest of the admin keeps working.", "text/plain", 500)
+
+-- admin_get(path, request, query, cfg) → the full GET surface, guarded: any
+-- rendering error degrades to page_error instead of a raw 500.
 export task admin_get(path, request, query, cfg)
+    try
+        give admin_get_raw(path, request, query, cfg)
+    recover err
+        give page_error(path, err)
+
+task admin_get_raw(path, request, query, cfg)
     let p be text(path)
     let open be cfg_get(cfg, "open", false)
     -- reachable without a session
@@ -1094,8 +1124,14 @@ export task admin_get(path, request, query, cfg)
         give html(endpoints_page(cfg_get(cfg, "api_docs", [])))
     give not_found("no such page: " + esc(p))
 
--- admin_post(path, request, cfg) → the full POST surface.
+-- admin_post(path, request, cfg) → the full POST surface, guarded like GET.
 export task admin_post(path, request, cfg)
+    try
+        give admin_post_raw(path, request, cfg)
+    recover err
+        give page_error(path, err)
+
+task admin_post_raw(path, request, cfg)
     let p be text(path)
     let open be cfg_get(cfg, "open", false)
     when p == "setup/submit"

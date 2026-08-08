@@ -547,21 +547,42 @@ test "lupa: busca en TODAS las sesiones (cerradas incluidas) y linkea a la duena
     assert(contains(vacio, "Nothing matches"), "sin hits lo dice")
 
 test "sesiones: un registro malformado en el store JAMAS tira 500 el chat (regresion del bug real)"
-    -- el caso reportado: un map sin created_at bajo synfide-sess:
-    store.put("synfide-sess:zz-malformado", {"id": "zz-malformado", "title": "resto de otra epoca"})
+    -- un map sin created_at bajo el prefijo de CHAT sessions
+    store.put("synfide-chatsess:zz-malformado", {"id": "zz-malformado", "title": "resto de otra epoca"})
     -- y peor: un valor que ni siquiera es un map
-    store.put("synfide-sess:zz-texto", "esto no es una sesion")
+    store.put("synfide-chatsess:zz-texto", "esto no es una sesion")
     let page be ui.chat_page()
     assert(contains(page, "resto de otra epoca"), "el malformado se normaliza y se VE")
     let page2 be ui.chat_page("zz-malformado")
     assert(contains(page2, "resto de otra epoca"), "hasta se puede abrir")
-    store.del("synfide-sess:zz-malformado")
-    store.del("synfide-sess:zz-texto")
+    store.del("synfide-chatsess:zz-malformado")
+    store.del("synfide-chatsess:zz-texto")
+
+test "colision SELLADA: sesiones de LOGIN y de CHAT viven en prefijos distintos (regresion del 500 real)"
+    let tok be ui.session_start({"name": "col-tester", "role": "superadmin"})
+    ui.chat_send_with("mensaje anti colision", fake_responder)
+    let page be ui.chat_page()
+    assert(not contains(page, tok), "un token de login JAMAS aparece como sesion de chat")
+    assert(ui.session_user(tok) != nothing, "el token sigue valido tras usar el chat")
+    let r be ui.session_new_json({"title": "aislada"})
+    ui.session_close_json({"id": r["id"]})
+    assert(ui.session_user(tok) != nothing, "cerrar una sesion de chat jamas toca un login")
+    ui.session_end(tok)
+
+test "guardia global: un error de render da pagina legible + journal, jamas un 500 pelado"
+    -- veneno que rompe approvals.pending() -> el shell de TODA pagina moriria
+    store.put("synfide-appr:veneno", "no soy un approval")
+    let r be ui.admin_get("", {"cookies": {}, "headers": {}}, {}, {"open": true})
+    assert_eq(status of r, 500)
+    assert(contains(body of r, "journaled"), "el error se anuncia legible y queda journaleado")
+    store.del("synfide-appr:veneno")
+    let ok be ui.admin_get("", {"cookies": {}, "headers": {}}, {}, {"open": true})
+    assert(contains(body of ok, "Synfide"), "sin el veneno la pagina vuelve sola")
 
 test "sesiones: la historia PRE-sesiones se adopta en la primera (un upgrade no pierde nada)"
-    each sk in store.list("synfide-sess:")
+    each sk in store.list("synfide-chatsess:")
         store.del(sk["key"])
-    store.del("synfide-sess-active")
+    store.del("synfide-chatsess-active")
     store.put("synfide-chat:990", {"n": 990, "role": "user", "text": "mensaje viejo pre-sesiones"})
     let page be ui.chat_page()
     assert(contains(page, "mensaje viejo pre-sesiones"), "la historia vieja aparece")

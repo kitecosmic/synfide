@@ -1,5 +1,5 @@
 {
-  "version": "v0.4.2",
+  "version": "v0.4.3",
   "files": [
     {
       "src": "synfide/store.syn",
@@ -49,7 +49,7 @@
     {
       "src": "synfide/ui.syn",
       "dest": "synfide/ui.syn",
-      "sha256": "9bfdb5c8af7222e156fcddd925f28c27f6d757d9103a0b9667cb2d09b7fa7cd6"
+      "sha256": "d8154d6db4a0029db65e47b49f30cd3999b1502e6355e04bdbd01cb365a02cef"
     },
     {
       "src": "synfide/agent.syn",
@@ -144,7 +144,7 @@
     {
       "src": "synfide/tests.syn",
       "dest": "synfide/tests.syn",
-      "sha256": "ee5b082f94cc780997a225903a1c48108ddb543a69cf698c9816f62a4c19419f"
+      "sha256": "ae0348f9ad921a5ab8c05acc1a78fd55b22e411b0cde4ce7de2715fa7e05c465"
     },
     {
       "src": "scaffold/AGENTS.md",
