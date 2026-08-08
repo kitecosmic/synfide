@@ -196,6 +196,34 @@
     });
   }
 
+  // The agent answers in markdown — render it. SAFE BY CONSTRUCTION: we
+  // start from textContent (already plain text), escape every HTML char,
+  // and only then wrap our OWN tags around bold/code/headers/lists/links
+  // (http(s) or site-relative only). No library, no innerHTML of raw input.
+  var mdEsc = function (s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var mdRender = function (raw) {
+    var out = [];
+    var parts = raw.split('```');
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        out.push('<pre class="md-code">' + mdEsc(parts[i].replace(/^[a-zA-Z0-9_-]*\n/, '')) + '</pre>');
+      } else {
+        var t = mdEsc(parts[i]);
+        t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+        t = t.replace(/(^|\n)#{1,4}\s*(.+)/g, '$1<span class="md-h">$2</span>');
+        t = t.replace(/(^|\n)\s*[-*]\s+(.+)/g, '$1<span class="md-li">&bull; $2</span>');
+        t = t.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        out.push(t);
+      }
+    }
+    return out.join('');
+  };
+  document.querySelectorAll('.msg.assistant span').forEach(function (sp) {
+    if (sp.querySelector('.dot')) return;
+    sp.innerHTML = mdRender(sp.textContent);
+  });
+
   // The chat opens at its latest message, composer focused. The composer is a
   // textarea: Enter sends, Shift+Enter makes a new line, and it grows with the
   // text (up to a cap). Without JS it still works — type and click Send.

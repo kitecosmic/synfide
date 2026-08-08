@@ -362,16 +362,29 @@ table { width: 100%; border-collapse: collapse; }
 /* ── chat ── */
 .chat { display: flex; flex-direction: column; gap: .45rem; }
 .msg { display: flex; }
-.msg span {
+.msg > span {
   padding: .55rem .8rem;
   border-radius: 14px;
   max-width: 80%;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* rendered markdown inside assistant bubbles */
+.msg .md-h { display: block; font-weight: 700; margin: .55em 0 .1em; }
+.msg .md-li { display: block; padding-left: .35em; }
+.msg .md-code {
+  display: block; white-space: pre; overflow-x: auto;
+  background: var(--chip); border: 1px solid var(--line); border-radius: 8px;
+  padding: .55rem .7rem; margin: .45em 0;
+  font-family: ui-monospace, Consolas, monospace; font-size: .82em;
+}
+.msg code {
+  background: var(--chip); border-radius: 4px; padding: .05em .3em;
+  font-family: ui-monospace, Consolas, monospace; font-size: .88em;
+}
 .msg.user { justify-content: flex-end; }
-.msg.user span { background: var(--user); color: #fff; border-bottom-right-radius: 4px; }
-.msg.assistant span { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.user > span { background: var(--user); color: #fff; border-bottom-right-radius: 4px; }
+.msg.assistant > span { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
 /* approve-all: the batch case (several patches of one build) in one click */
 .decide-all { display: flex; gap: .5rem; align-items: center; margin-bottom: .9rem; flex-wrap: wrap; }
 .decide-all .hint { font-size: 11.5px; color: var(--muted); }
