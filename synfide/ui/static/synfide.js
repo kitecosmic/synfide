@@ -84,6 +84,53 @@
     });
   }
 
+  // Chat sessions: switch via the picker, start fresh, archive the current
+  // one. Closing never deletes — history stays searchable via the lens.
+  var pick = document.getElementById('sesspick');
+  if (pick) {
+    pick.addEventListener('change', function () {
+      location.href = '/chat?session=' + encodeURIComponent(pick.value);
+    });
+  }
+  var sessNew = document.getElementById('sessnew');
+  if (sessNew) {
+    sessNew.addEventListener('click', function () {
+      fetch('/chat/session/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); }); })
+        .catch(function (e) { alert('failed: ' + e); });
+    });
+  }
+  var sessClose = document.getElementById('sessclose');
+  if (sessClose) {
+    sessClose.addEventListener('click', function () {
+      if (!window.confirm('Close this session? It becomes read-only (still searchable).')) return;
+      fetch('/chat/session/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sessClose.dataset.id }) })
+        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); }); })
+        .catch(function (e) { alert('failed: ' + e); });
+    });
+  }
+
+  // Autopilot: a time-boxed standing approval for patches, granted (and
+  // revoked) from the chat. The server journals every change.
+  var apSet = function (minutes) {
+    fetch('/admin/autopilot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes: minutes })
+    })
+      .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); }); })
+      .catch(function (e) { alert('failed: ' + e); });
+  };
+  var apForm = document.getElementById('apform');
+  if (apForm) {
+    apForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      apSet(parseInt(apForm.elements.minutes.value, 10));
+    });
+  }
+  var apOff = document.getElementById('apoff');
+  if (apOff) apOff.addEventListener('click', function () { apSet(0); });
+
   // The write-only env editor: value goes out as JSON exactly once, is never
   // echoed back, and every save needs the one-time code the server prints to
   // ITS terminal (Request code). Without JS, the page still explains the

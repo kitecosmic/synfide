@@ -346,6 +346,34 @@ This file covers what those do NOT: the framework's packages, contracts and rule
   `ui.resolve_all_json(body)` at `POST /inbox/ui/decide_all` (dispatcher
   wires it): every decision individually journaled, and CODE-PROTECTED
   approvals are SKIPPED, never bulk-approved.
+- **Approvals live IN the chat too:** pending items render as an inline
+  panel above the composer (same decide/decide_all endpoints) — leaving the
+  conversation to click Approve broke the loop; the Approvals tab remains
+  for when you're not chatting.
+- **Chat SESSIONS + search.** The chat is sessions, not one eternal thread:
+  one is ACTIVE (`synfide-sess-active`) and only changes when the human
+  switches — a task asked in a session gets its answers IN that session
+  (chat_send_with records into the session that asked, even if the human
+  switched away mid-answer), so results are always where the conversation
+  was. Session bar: picker, New, Close (archives — read-only forever,
+  never deletes) and a lens that searches EVERY session
+  (`GET /chat?q=...`; hits link to their owning session;
+  `GET /chat?session=<id>` switches/views). Lifecycle via
+  `POST /chat/session/new` / `close` (journaled). Histories from before
+  sessions existed are adopted once into an "earlier conversation" session
+  — an upgrade never loses a chat. Storage:
+  `synfide-sess:<sid>` · `synfide-chat:<sid>:<n>` · per-session counter.
+- **Autopilot — a time-boxed standing approval for PATCHES.**
+  `approvals.autopilot_set(minutes, who)` / `approvals.autopilot()` (expires
+  by itself; a stale window cleans up on read). While active, the patch gate
+  (`agent.patch_gate_step`) self-approves — recorded with
+  `decided_by: "autopilot (window by <who>)"` and journaled, so autopilot
+  changes WHO clicks, never what gets recorded. Hard limits: granted only by
+  a signed-in human (`POST /admin/autopilot` → `ui.autopilot_json`, capped
+  at 480 min, journaled on/off), NEVER touches protected (coded) approvals
+  (resolve refuses → the gate stays parked), and applies ONLY where a caller
+  consults it — external actions keep their human click. The chat shows the
+  switch and, while active, a visible "Autopilot ON — N min" state.
 - **`journal.tail(k)`** → the last k journal entries as compact one-per-line
   text — the agent's other eye (wire as a `journal_tail` tool; needs the
   entry's `memory` cap in the wrapper).

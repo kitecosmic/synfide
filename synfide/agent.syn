@@ -18,6 +18,7 @@ use "./docs.syn" as docs
 use "./store.syn" as store
 use "./patches.syn" as patches
 use "./durable.syn" as durable
+use "./approvals.syn" as approvals
 
 -- respond(question, tools, catalog, context, max_steps) → the agent's final text.
 --   tools    — the allow-list: {"name": task}
@@ -96,7 +97,7 @@ export task base_catalog()
     ]
 
 export task base_instructions()
-    give "You are an AUTONOMOUS operator, not a consultant: when the human asks for something buildable, BUILD IT in this same turn — decide, use your tools as many times as it takes, and report what you DID, never a plan you are about to start. Do not ask permission to begin (the system's approval gates are the permission), do not end with a question you could answer by calling a tool, and never paste project code into the chat as the deliverable. If the task is bigger than one turn allows, ship the most valuable slice NOW and end with one line saying exactly what landed and what you will do next — the human's next message (even just 'go on') resumes precisely there; never restart from zero. App logic is written in Synsema (.syn); HTML/CSS/JS only for the browser side. For anything involving Synsema code you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before shipping them."
+    give "You are an AUTONOMOUS operator, not a consultant: when the human asks for something buildable, BUILD IT in this same turn — decide, use your tools as many times as it takes, and report what you DID, never a plan you are about to start. Do not ask permission to begin (the system's approval gates are the permission), do not end with a question you could answer by calling a tool, and NEVER close with 'shall I continue with X?' — if X is the obvious next step, you either already did it this turn or you end with 'next: X' as a statement, not a question (the human interrupts if they disagree). Never paste project code into the chat as the deliverable. Keep reports SHORT: what landed, where to see it, what is next — no headed essays, no restating what the human just read. If the task is bigger than one turn allows, ship the most valuable slice NOW and end with one line saying exactly what landed and what you will do next — the human's next message (even just 'go on') resumes precisely there; never restart from zero. App logic is written in Synsema (.syn); HTML/CSS/JS only for the browser side. For anything involving Synsema code you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before shipping them."
 
 -- The extra paragraph operator() appends ONLY when the entry wired a
 -- propose_patch tool — instructions must never mention tools that don't
@@ -118,7 +119,21 @@ task patch_instructions()
 -- no matter what.
 
 task patch_gate_step(ctx)
-    give patches.gate(ctx["id"])
+    let g be patches.gate(ctx["id"])
+    when contains(g, "synfide")
+        -- still pending. Inside an autopilot window the gate self-approves
+        -- (recorded as decided_by "autopilot…", journaled) — protected
+        -- approvals make resolve() raise and we stay parked, so a coded
+        -- gate can never be autopiloted.
+        let ap be approvals.autopilot()
+        when ap != nothing
+            try
+                approvals.resolve("patch-" + ctx["id"], true, "autopilot (window by " + text(ap["who"]) + ")")
+                journal.record("autopilot", "patch-auto-approved", text(ctx["id"]))
+                give patches.gate(ctx["id"])
+            recover err
+                give g
+    give g
 
 task patch_apply_step(ctx)
     let r be patches.apply(ctx["id"])
@@ -144,8 +159,10 @@ export task patch_flow(path, old, new, why, guidelines = "")
     let r be durable.run("patch-" + id, patch_steps(), {"id": id})
     let note be ""
     when ends_with(text(p["path"]), ".syn")
-        set note to " NOTE: .syn code loads at boot — after it applies, the human must RESTART the server before the new code answers."
-    give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human in the Approvals inbox; once approved it applies to disk by itself. Status: " + r["status"] + note
+        set note to " NOTE: .syn code loads at boot — once applied, restart the process that runs it (restart_backend if you have it) before the new code answers."
+    when r["status"] == "done"
+        give "patch " + id + " (" + text(p["path"]) + ") audited-ok and APPLIED automatically (autopilot window active — the human granted standing approval)." + note
+    give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human's approval (they see it right in the chat and in Approvals); once approved it applies to disk by itself. Status: " + r["status"] + note
 
 -- patches_summary() → one line per proposal, newest last — the agent's eyes
 -- on what got approved, applied or rejected.

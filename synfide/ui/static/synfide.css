@@ -376,6 +376,66 @@ table { width: 100%; border-collapse: collapse; }
 .decide-all { display: flex; gap: .5rem; align-items: center; margin-bottom: .9rem; flex-wrap: wrap; }
 .decide-all .hint { font-size: 11.5px; color: var(--muted); }
 
+/* the session bar: lens search + session picker, quiet until needed */
+.sessbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .8rem; flex-wrap: wrap; margin-bottom: .9rem;
+}
+.sess-search {
+  display: flex; align-items: center; gap: 0; margin: 0; flex: 1; max-width: 340px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
+  padding: .1rem .25rem .1rem .1rem;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.sess-search:focus-within { border-color: var(--caption); box-shadow: 0 0 0 3px color-mix(in srgb, var(--caption) 14%, transparent); }
+.sess-search .lens {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: none; border-radius: 50%; background: transparent; color: var(--muted);
+  cursor: pointer; padding: 0;
+}
+.sess-search .lens:hover { color: var(--caption); background: var(--chip); }
+.sess-search input {
+  flex: 1; border: none; background: transparent; outline: none;
+  font: inherit; font-size: .85rem; color: inherit; padding: .3rem .35rem;
+  min-width: 0;
+}
+.sess-controls { display: flex; align-items: center; gap: .4rem; }
+.sess-controls select { max-width: 220px; }
+
+/* search results: one card per hit, the session name leads */
+.search-results .hit {
+  display: block; padding: .6rem .8rem; margin-bottom: .5rem;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  text-decoration: none; color: inherit;
+}
+.search-results .hit:hover { border-color: var(--caption); text-decoration: none; }
+.search-results .hit-sess { display: block; font-size: 11.5px; color: var(--caption); font-weight: 600; margin-bottom: .15rem; }
+.search-results .hit-text { display: block; font-size: .87rem; color: var(--muted); overflow-wrap: anywhere; }
+
+/* approvals INSIDE the chat: decide without leaving the conversation */
+.chat-approvals {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--caption);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: .7rem .9rem;
+}
+.chat-approvals .ca-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
+.chat-approvals .decide-all { margin: 0; }
+.ca-item {
+  display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  padding: .45rem 0; border-top: 1px solid var(--line);
+}
+.ca-item > div:first-child { flex: 1; min-width: 0; max-height: 8.5em; overflow-y: auto; }
+.ca-item form.decide { display: flex; gap: .4rem; flex-shrink: 0; }
+
+/* the autopilot switch: standing approval, always visible while active */
+.autopilot { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; font-size: .85rem; }
+.autopilot .hint { color: var(--muted); font-size: 11.5px; }
+.autopilot .ap-on { color: var(--caption); font-weight: 600; }
+.autopilot form { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0; }
+
 /* the "agent is thinking" bubble the composer appends while a send is in flight */
 .msg.thinking .dot {
   display: inline-block; width: 6px; height: 6px; margin: 0 2px;

@@ -580,40 +580,127 @@ export task endpoints_page(api_docs)
     set d["has_docs"] to length(api_docs) > 0
     give body of render("synfide/ui/pages/endpoints.html", d)
 
--- ---------- chat ----------
--- A chat over the runtime's configured LLM provider (any of them, or a local
--- GGUF — the framework never names one). History persists in the store;
--- offline it still works, answering with the runtime's placeholder and showing
--- a banner telling you to configure .env.
+-- ---------- chat: SESSIONS ----------
+-- The chat is not one eternal thread — it is sessions: first-class records
+-- the admin opens, switches, closes (archived, read-only) and SEARCHES.
+-- One session is ACTIVE at a time and it only changes when the human
+-- explicitly switches: a task asked in a session gets its answers, results
+-- and follow-ups in THAT session — you always come back to the same chat.
+-- Keys: synfide-sess:<sid> (record) · synfide-sess-active (pointer) ·
+-- synfide-chat:<sid>:<n> (message) · synfide-chat-n:<sid> (counter).
+-- Histories from before sessions existed (synfide-chat:<n>) are adopted
+-- once into the first session — an upgrade never loses a conversation.
 
-task chat_next_n()
-    let n be store.get("synfide-chat-n", 0) + 1
-    store.put("synfide-chat-n", n)
+task sessions_all()
+    give sort_by(apply(store.list("synfide-sess:"), (kv) => kv["value"]), (s) => s["created_at"])
+
+task session_get(sid)
+    give store.get("synfide-sess:" + text(sid), nothing)
+
+task session_new(title)
+    let n be store.get("synfide-sess-n", 0) + 1
+    store.put("synfide-sess-n", n)
+    let sid be "s" + text(n)
+    let t be trim(text(title))
+    when t == "" or t == "nothing"
+        set t to "session " + text(n)
+    store.put("synfide-sess:" + sid, {"id": sid, "title": t, "status": "open", "created_at": now()})
+    store.put("synfide-sess-active", sid)
+    give sid
+
+-- ensure_session() → the active session's id, creating/adopting as needed.
+task ensure_session()
+    let cur be store.get("synfide-sess-active", nothing)
+    when cur != nothing
+        let s be session_get(cur)
+        when s != nothing
+            when s["status"] == "open"
+                give cur
+    -- active gone or closed: fall back to the newest open session
+    let open be where(sessions_all(), (s) => s["status"] == "open")
+    when length(open) > 0
+        let last be open[length(open) - 1]
+        store.put("synfide-sess-active", last["id"])
+        give last["id"]
+    -- first session ever: ADOPT any pre-session history so upgrades keep it
+    let old be where(store.list("synfide-chat:"), (kv) => not contains(slice(kv["key"], 13, length(kv["key"])), ":"))
+    let title be ""
+    when length(old) > 0
+        set title to "earlier conversation"
+    let sid be session_new(title)
+    each kv in old
+        store.put("synfide-chat:" + sid + ":" + slice(kv["key"], 13, length(kv["key"])), kv["value"])
+        store.del(kv["key"])
+    when length(old) > 0
+        store.put("synfide-chat-n:" + sid, store.get("synfide-chat-n", 0))
+    give sid
+
+task chat_next_n(sid)
+    let n be store.get("synfide-chat-n:" + sid, 0) + 1
+    store.put("synfide-chat-n:" + sid, n)
     give n
 
-task chat_entries()
-    let vals be apply(store.list("synfide-chat:"), (kv) => kv["value"])
+task chat_entries(sid)
+    let vals be apply(store.list("synfide-chat:" + sid + ":"), (kv) => kv["value"])
     give sort_by(vals, (e) => e["n"])
 
-task chat_record(role, content)
-    let n be chat_next_n()
-    store.put("synfide-chat:" + text(n), {"n": n, "role": role, "text": content})
+task chat_record(sid, role, content)
+    let n be chat_next_n(sid)
+    store.put("synfide-chat:" + sid + ":" + text(n), {"n": n, "role": role, "text": content})
 
-task recent_ctx()
-    let es be chat_entries()
+task recent_ctx(sid)
+    let es be chat_entries(sid)
     let maxn be length(es)
     let recent be where(es, (e) => e["n"] > maxn - 8)
     give join(apply(recent, (e) => e["role"] + ": " + e["text"]), "\n")
+
+task session_label(x)
+    when x["status"] == "closed"
+        give text(x["title"]) + " · closed"
+    give text(x["title"])
+
+task session_sel_attr(a, b)
+    when a == b
+        give " selected"
+    give ""
+
+-- chat_search(q) → matches across EVERY session, newest sessions first:
+-- [{sid, title, status, role, snippet}] — so "where did the agent do X?"
+-- is one search away instead of a hunt through conversations.
+task chat_search(q)
+    let ql be lower(trim(text(q)))
+    when ql == ""
+        give []
+    let titles be {}
+    each s in sessions_all()
+        set titles[s["id"]] to s
+    let hits be []
+    each kv in store.list("synfide-chat:")
+        when length(hits) < 30
+            let suffix be slice(kv["key"], 13, length(kv["key"]))
+            when contains(suffix, ":")
+                let e be kv["value"]
+                when contains(lower(text(e["text"])), ql)
+                    let sid be split(suffix, ":")[0]
+                    let title be sid
+                    when contains(titles, sid)
+                        set title to session_label(titles[sid])
+                    let snip be text(e["text"])
+                    when length(snip) > 160
+                        set snip to slice(snip, 0, 160) + "…"
+                    set hits to hits + [{"sid": sid, "title": title, "role": text(e["role"]), "snippet": snip}]
+    give hits
 
 -- chat_send(message) → answers with the configured provider (recent turns as
 -- context), persists both sides, and redirects back to /chat.
 export task chat_send(message)
     when message == nothing or trim(text(message)) == ""
         give go("/chat")
+    let sid be ensure_session()
     let msg be trim(text(message))
-    chat_record("user", msg)
-    let answer be reason about msg with context = recent_ctx()
-    chat_record("assistant", text(answer))
+    chat_record(sid, "user", msg)
+    let answer be reason about msg with context = recent_ctx(sid)
+    chat_record(sid, "assistant", text(answer))
     give go("/chat")
 
 -- chat_send_with(message, responder) → same, but the answer comes from YOUR
@@ -625,20 +712,117 @@ export task chat_send(message)
 export task chat_send_with(message, responder)
     when message == nothing or trim(text(message)) == ""
         give go("/chat")
+    let sid be ensure_session()
     let msg be trim(text(message))
-    chat_record("user", msg)
-    let answer be call(responder, {"message": msg, "history": recent_ctx()})
-    chat_record("assistant", text(answer))
+    chat_record(sid, "user", msg)
+    let answer be call(responder, {"message": msg, "history": recent_ctx(sid)})
+    -- the answer lands in the session that ASKED — even if the human
+    -- switched away while the agent was thinking
+    chat_record(sid, "assistant", text(answer))
     give go("/chat")
 
 -- chat_page() → the chat as HTML text (wrap with html() in your route).
-export task chat_page()
-    let es be chat_entries()
+-- Approvals live IN the chat too: leaving the conversation to click Approve
+-- broke the loop, so pending items render as an inline panel above the
+-- composer (the Approvals tab remains for when you are NOT chatting). The
+-- panel also carries the AUTOPILOT switch — a time-boxed standing approval
+-- for patches (approvals.autopilot) so easy builds don't cost one click per
+-- file. Active autopilot is always VISIBLE (the system never hides).
+export task chat_page(sess = "", q = "")
+    let want be trim(text(sess))
+    when want == "nothing"
+        set want to ""
+    let query_q be trim(text(q))
+    when query_q == "nothing"
+        set query_q to ""
+    let sid be ensure_session()
+    -- ?session=<id>: an OPEN one becomes active; a CLOSED one is read-only
+    when want != ""
+        let ws be session_get(want)
+        when ws != nothing
+            set sid to want
+            when ws["status"] == "open"
+                store.put("synfide-sess-active", want)
+    let s be session_get(sid)
+    let can_send be s["status"] == "open"
+    let es be chat_entries(sid)
     let d be shell_data("Synfide — chat", "chat", "Chat", "", "1")
     set d["show_banner"] to not llm_available()
     set d["messages"] to es
     set d["has_msgs"] to length(es) > 0
+    set d["session_id"] to sid
+    set d["session_title"] to s["title"]
+    set d["can_send"] to can_send
+    set d["is_closed"] to not can_send
+    set d["sessions"] to apply(sessions_all(), (x) => {
+        "id": x["id"],
+        "label": session_label(x),
+        "sel_attr": session_sel_attr(x["id"], sid)
+    })
+    -- search across every session (the lens in the session bar)
+    set d["q"] to query_q
+    set d["searching"] to query_q != ""
+    let hits be chat_search(query_q)
+    set d["results"] to hits
+    set d["has_results"] to length(hits) > 0
+    set d["approvals"] to apply(approvals.pending(), (a) => appr_view(a))
+    set d["has_approvals"] to length(approvals.pending()) > 0
+    let ap be approvals.autopilot()
+    set d["autopilot_on"] to ap != nothing
+    when ap != nothing
+        set d["autopilot_left"] to text(ceil((ap["until"] - now()) / 60))
+    otherwise
+        set d["autopilot_left"] to ""
     give body of render("synfide/ui/pages/chat.html", d)
+
+-- session_new_json(body) / session_close_json(body) → the session lifecycle
+-- from the UI. Closing archives (read-only forever, searchable) — it never
+-- deletes; if the closed one was active, the next page view falls back to
+-- the newest open session (or a fresh one). Journaled both ways.
+export task session_new_json(body)
+    let title be ""
+    when body != nothing
+        when contains(body, "title")
+            set title to text(body["title"])
+    let sid be session_new(title)
+    journal.record("web", "chat-session-new", sid)
+    give {"ok": true, "id": sid}
+
+export task session_close_json(body)
+    when body == nothing
+        give respond("body must be JSON: {\"id\"}", "text/plain", 400)
+    let sid be text(body["id"])
+    let s be session_get(sid)
+    when s == nothing
+        give not_found("no such session: " + esc(sid))
+    set s["status"] to "closed"
+    set s["closed_at"] to now()
+    store.put("synfide-sess:" + sid, s)
+    when store.get("synfide-sess-active", nothing) == sid
+        store.del("synfide-sess-active")
+    journal.record("web", "chat-session-closed", sid + " (" + text(s["title"]) + ")")
+    give {"ok": true, "id": sid}
+
+-- autopilot_json(body) → grant/clear the standing-approval window from the
+-- admin UI: {"minutes": N} (0 = off). Journaled with who/when — granting a
+-- window is itself an auditable decision. Wire behind guard_api.
+export task autopilot_json(body)
+    when body == nothing
+        give respond("body must be JSON: {\"minutes\": N} (0 = off)", "text/plain", 400)
+    let mins be body["minutes"]
+    let who be "web"
+    when contains(body, "who")
+        when trim(text(body["who"])) != ""
+            set who to text(body["who"])
+    when mins <= 0
+        approvals.autopilot_set(0, who)
+        journal.record(who, "autopilot-off", "standing approval window cleared")
+        give {"ok": true, "autopilot": false}
+    when mins > 480
+        give respond("autopilot window is capped at 480 minutes", "text/plain", 400)
+    let a be approvals.autopilot_set(mins, who)
+    journal.record(who, "autopilot-on", "patches auto-approve for " + text(mins) + " min")
+    give {"ok": true, "autopilot": true, "until": a["until"]}
 
 -- ---------- the admin dispatcher: the WHOLE framework surface, framework-owned ----------
 -- The boundary fix (DESIGN-frontera-framework-usuario): the user's entry stops
@@ -717,6 +901,17 @@ export task llms_txt(cfg)
 -- into the chat, which is the honest signal to add the line.
 task default_responder(message, history)
     give agent.operator(message, {}, [], "", history, 4)
+
+-- qval(query, name) → the query param as text, "" when absent — works for
+-- the server's query node AND for plain maps (tests, custom wiring).
+task qval(query, name)
+    try
+        let v be query[name]
+        when v == nothing
+            give ""
+        give text(v)
+    recover err
+        give ""
 
 -- Bearer from the Authorization header ("Bearer x" → "x"), or nothing.
 task bearer_token(request)
@@ -853,7 +1048,7 @@ export task admin_get(path, request, query, cfg)
     when p == ""
         give html(home_page())
     when p == "chat"
-        give html(chat_page())
+        give html(chat_page(qval(query, "session"), qval(query, "q")))
     when p == "chat/send"
         let responder be cfg_get(cfg, "responder", nothing)
         when responder == nothing
@@ -910,6 +1105,12 @@ export task admin_post(path, request, cfg)
         give resolve_json(request.json)
     when p == "inbox/ui/decide_all"
         give resolve_all_json(request.json)
+    when p == "admin/autopilot"
+        give autopilot_json(request.json)
+    when p == "chat/session/new"
+        give session_new_json(request.json)
+    when p == "chat/session/close"
+        give session_close_json(request.json)
     when p == "admin/env/code"
         give env_code_request()
     when p == "admin/env/set"

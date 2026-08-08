@@ -2,6 +2,36 @@
 { when show_banner }
 <p class="warn-banner">No LLM provider configured &mdash; answers are placeholders. Copy .env.example to .env, pick a provider, paste its key, restart the server.</p>
 { end }
+<div class="sessbar">
+  <form class="sess-search" action="/chat" method="get">
+    <button class="lens" aria-label="Search all sessions" title="Search all sessions"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="16.7" y1="16.7" x2="21" y2="21"></line></svg></button>
+    <input name="q" placeholder="Search every session&hellip;" value="{ q }" autocomplete="off" spellcheck="false">
+  </form>
+  <div class="sess-controls">
+    <select id="sesspick" title="Sessions">
+      { each s in sessions }<option value="{ s.id }"{ s.sel_attr }>{ s.label }</option>
+      { end }</select>
+    <button id="sessnew" class="ok" title="Start a fresh session">New</button>
+    { when can_send }<button id="sessclose" class="no" data-id="{ session_id }" title="Archive this session (read-only, searchable)">Close</button>{ end }
+  </div>
+</div>
+{ when searching }
+<div class="search-results">
+  <p class="caption">Results for &ldquo;{ q }&rdquo; &mdash; <a href="/chat">back to the chat</a></p>
+  { when has_results }
+  { each r in results }<a class="hit" href="/chat?session={ r.sid }">
+    <span class="hit-sess">{ r.title }</span>
+    <span class="hit-text"><b>{ r.role }:</b> { r.snippet }</span>
+  </a>
+  { end }
+  { otherwise }
+  <p class="empty">Nothing matches &mdash; try another word.</p>
+  { end }
+</div>
+{ otherwise }
+{ when is_closed }
+<p class="warn-banner"><b>{ session_title } is closed</b> &mdash; read-only. Its history stays searchable forever; pick an open session (or New) to keep working.</p>
+{ end }
 <div class="chat">
 { when has_msgs }
 { each m in messages }<div class="msg { m.role }"><span>{ m.text }</span></div>
@@ -10,7 +40,39 @@
 <p class="empty">Say hello &mdash; or ask your agent to DO something. Risky actions park in the inbox for a human first.</p>
 { end }
 </div>
+{ when can_send }
+{ when has_approvals }
+<div class="chat-approvals">
+  <div class="ca-head"><span class="caption">Waiting for you — decide right here</span>
+    <form class="decide-all" id="decideall"><input name="who" type="hidden" value=""><button class="ok">Approve all</button></form>
+  </div>
+  { each a in approvals }<div class="ca-item">
+    <div class="{ a.cls }">{ a.message }</div>
+    <form class="decide" data-id="{ a.id }">
+      <input name="who" type="hidden" value="">
+      <button name="approved" value="yes" class="ok">Approve</button>
+      <button name="approved" value="no" class="no">Deny</button>
+    </form>
+  </div>
+  { end }
+</div>
+{ end }
+<div class="autopilot">
+  { when autopilot_on }
+  <span class="ap-on">&#9889; Autopilot ON &mdash; patches auto-approve for { autopilot_left } more min (actions &amp; coded approvals still wait for you)</span>
+  <button id="apoff" class="no">Turn off</button>
+  { otherwise }
+  <form id="apform">
+    <span class="hint">Autopilot: auto-approve the agent's file patches for</span>
+    <select name="minutes"><option value="30">30 min</option><option value="60">60 min</option><option value="120">120 min</option></select>
+    <button class="ok">Enable</button>
+    <span class="hint">(external actions &amp; coded approvals always wait for you)</span>
+  </form>
+  { end }
+</div>
 <form class="send" action="/chat/send" method="get"><div>
   <textarea name="message" rows="1" placeholder="Ask, or ask for an action&hellip; (Enter sends &middot; Shift+Enter = new line)" autofocus autocomplete="off"></textarea>
   <button class="ok">Send</button>
 </div></form>
+{ end }
+{ end }

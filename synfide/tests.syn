@@ -456,6 +456,106 @@ test "patch loop: un gate DENEGADO nunca llega al filesystem"
     assert_eq(r["status"], "failed", "gate denegado -> el step falla, no aplica")
     assert(not file_exists("./.tmp-tests/site-denied.html"), "el filesystem quedo intacto")
 
+-- ---------- autopilot: aprobacion vigente por tiempo ----------
+
+test "autopilot: se enciende con ventana, expira solo, y 0 lo apaga"
+    assert_eq(approvals.autopilot(), nothing, "arranca apagado")
+    approvals.autopilot_set(30, "tester")
+    assert(approvals.autopilot() != nothing, "encendido")
+    approvals.autopilot_set(0, "tester")
+    assert_eq(approvals.autopilot(), nothing, "0 apaga")
+    -- una ventana vencida se limpia sola al consultarla
+    store.put("synfide-autopilot", {"until": now() - 5, "who": "tester"})
+    assert_eq(approvals.autopilot(), nothing, "vencida = apagada")
+    assert_eq(store.get("synfide-autopilot", nothing), nothing, "y el registro se limpio")
+
+test "autopilot: el gate de un patch se auto-aprueba y aplica EN LA MISMA corrida"
+    let aid be "ap-" + text(now())
+    let apath be "./.tmp-tests/site-" + aid + ".html"
+    patches.propose(aid, apath, nothing, "<h1>autopiloto</h1>", "create page under autopilot")
+    patches.audit(aid, approving_auditor, "")
+    approvals.autopilot_set(30, "tester")
+    let r be durable.run("patch-" + aid, agent.patch_steps(), {"id": aid})
+    approvals.autopilot_set(0, "tester")
+    assert_eq(r["status"], "done", "sin click humano: gate + apply en una corrida")
+    assert(contains(read_file(apath), "autopiloto"), "el archivo existe")
+    assert_eq(approvals.status("patch-" + aid)["decided_by"], "autopilot (window by tester)", "queda registrado QUIEN aprobo: el autopilot")
+
+test "autopilot: un gate PROTEGIDO por codigo jamas se autopilotea"
+    let pid be "app-" + text(now())
+    patches.propose(pid, "./.tmp-tests/site-" + pid + ".html", nothing, "<h1>x</h1>", "protected probe")
+    patches.audit(pid, approving_auditor, "")
+    -- primer run crea el approval del gate; lo protegemos y encendemos autopilot
+    durable.run("patch-" + pid, agent.patch_steps(), {"id": pid})
+    approvals.protect("patch-" + pid)
+    approvals.autopilot_set(30, "tester")
+    let r be durable.run("patch-" + pid, agent.patch_steps(), {"id": pid})
+    approvals.autopilot_set(0, "tester")
+    assert_eq(r["status"], "waiting", "protegido sigue esperando su codigo")
+    assert(not file_exists("./.tmp-tests/site-" + pid + ".html"), "nada toco el disco")
+
+test "chat: el panel de aprobaciones y el switch de autopilot viven EN el chat"
+    approvals.request("chat-appr-1", "Apply patch chat-appr-1?")
+    let page be ui.chat_page()
+    assert(contains(page, "decide right here"), "panel de aprobaciones presente")
+    assert(contains(page, "chat-appr-1"), "el pendiente se lista")
+    assert(contains(page, "Autopilot:"), "el switch esta (apagado)")
+    approvals.resolve("chat-appr-1", false, "tester")
+    approvals.autopilot_set(15, "tester")
+    let page2 be ui.chat_page()
+    assert(contains(page2, "Autopilot ON"), "el estado activo es VISIBLE")
+    approvals.autopilot_set(0, "tester")
+
+test "autopilot_json: enciende/apaga journaleado y respeta el tope"
+    let on be ui.autopilot_json({"minutes": 45, "who": "tester"})
+    assert_eq(on["autopilot"], true)
+    assert(approvals.autopilot() != nothing)
+    let too be ui.autopilot_json({"minutes": 9999})
+    assert_eq(status of too, 400, "tope de 480 min")
+    let off be ui.autopilot_json({"minutes": 0})
+    assert_eq(off["autopilot"], false)
+    assert_eq(approvals.autopilot(), nothing)
+
+-- ---------- chat: sesiones + lupa ----------
+
+test "sesiones: new/switch/close — cada conversacion es un objeto; cerrar archiva, no borra"
+    let r1 be ui.session_new_json({"title": "tarea uno"})
+    let sid1 be r1["id"]
+    ui.chat_send_with("hola tarea uno", fake_responder)
+    let page be ui.chat_page()
+    assert(contains(page, "tarea uno"), "el titulo de la sesion activa se ve")
+    assert(contains(page, "hola tarea uno"), "el mensaje cayo en la sesion activa")
+    let r2 be ui.session_new_json({})
+    let page2 be ui.chat_page()
+    assert(not contains(page2, "hola tarea uno"), "la sesion nueva arranca LIMPIA")
+    -- volver a la primera con ?session= (queda activa de nuevo)
+    let page3 be ui.chat_page(sid1)
+    assert(contains(page3, "hola tarea uno"), "el switch trae la historia completa")
+    -- cerrar: read-only, sin composer, historia intacta
+    ui.session_close_json({"id": sid1})
+    let page4 be ui.chat_page(sid1)
+    assert(contains(page4, "read-only"), "sesion cerrada avisa")
+    assert(not contains(page4, "/chat/send"), "sin composer en sesion cerrada")
+    assert(contains(page4, "hola tarea uno"), "la historia sigue legible")
+
+test "lupa: busca en TODAS las sesiones (cerradas incluidas) y linkea a la duena"
+    let page be ui.chat_page("", "hola tarea uno")
+    assert(contains(page, "Results for"), "modo busqueda")
+    assert(contains(page, "tarea uno"), "el hit nombra la sesion")
+    assert(contains(page, "/chat?session="), "cada hit linkea a su sesion")
+    let vacio be ui.chat_page("", "frase-que-no-existe-en-ningun-lado")
+    assert(contains(vacio, "Nothing matches"), "sin hits lo dice")
+
+test "sesiones: la historia PRE-sesiones se adopta en la primera (un upgrade no pierde nada)"
+    each sk in store.list("synfide-sess:")
+        store.del(sk["key"])
+    store.del("synfide-sess-active")
+    store.put("synfide-chat:990", {"n": 990, "role": "user", "text": "mensaje viejo pre-sesiones"})
+    let page be ui.chat_page()
+    assert(contains(page, "mensaje viejo pre-sesiones"), "la historia vieja aparece")
+    assert(contains(page, "earlier conversation"), "adoptada en su propia sesion")
+    assert_eq(store.get("synfide-chat:990", nothing), nothing, "la clave vieja se migro")
+
 -- ---------- backend real: marker de restart + least-privilege ----------
 
 test "patches: aplicar un .syn deja el marker de restart; un no-.syn no lo toca"

@@ -85,6 +85,37 @@ export task pending()
     let records be apply(all, (kv) => kv["value"])
     give where(records, (a) => a["status"] == "pending")
 
+-- ---------- autopilot: a standing, TIME-BOXED approval ----------
+--
+-- "Approve every patch for the next N minutes." The human grants a window;
+-- inside it the patch gate auto-resolves (decided_by records "autopilot")
+-- instead of parking — a 6-file site build stops needing 6 clicks. Held to
+-- strict limits ON PURPOSE: it must be granted by a signed-in human, it
+-- expires by itself, it NEVER touches protected (coded) approvals, and it
+-- only applies where a caller explicitly consults it (the patch gate —
+-- external actions keep their human click). Everything remains journaled
+-- and auditable: autopilot changes WHO clicks, never what gets recorded.
+
+let AUTO_KEY be "synfide-autopilot"
+
+-- autopilot_set(minutes, who) → the window record; minutes <= 0 turns it off.
+export task autopilot_set(minutes, who)
+    when minutes <= 0
+        store.del(AUTO_KEY)
+        give nothing
+    give store.put(AUTO_KEY, {"until": now() + minutes * 60, "who": who})
+
+-- autopilot() → the active window record, or nothing (expired windows are
+-- cleaned as a side effect — expiry needs no cron).
+export task autopilot()
+    let a be store.get(AUTO_KEY, nothing)
+    when a == nothing
+        give nothing
+    when now() > a["until"]
+        store.del(AUTO_KEY)
+        give nothing
+    give a
+
 -- gate(id, message) → the piece that plugs into a durable step. Requests the
 -- approval (idempotently) and returns:
 --   still pending → the durable wait sentinel (the workflow parks)
