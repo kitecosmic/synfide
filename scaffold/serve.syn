@@ -102,10 +102,13 @@ task tool_read_project_file(path, from = 0, lines = 0)
     require file.read("./workspace/*")
     when not file_exists(path)
         give "no such file: " + path
-    when from > 0
-        when lines > 0
-            give read_file(path, from, lines)
-        give read_file(path, from)
+    -- the model sends numbers AS TEXT — coerce or a bare `from > 0` raises
+    let f be agent.arg_num(from)
+    let l be agent.arg_num(lines)
+    when f > 0
+        when l > 0
+            give read_file(path, f, l)
+        give read_file(path, f)
     give read_file(path)
 
 -- Search the WHOLE territory (recursive, literal): file:line: text.

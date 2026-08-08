@@ -413,6 +413,17 @@ test "operator: el baseline de Synsema se une DEBAJO del dominio y el dominio ga
     assert_eq(length(mine), 1, "una sola entrada por nombre en el catalogo")
     assert_eq(mine[0]["describe"], "la mia")
 
+test "arg_num: los modelos mandan TEXTO donde el contrato dice numero — se coerciona siempre"
+    assert_eq(agent.arg_num("3"), 3)
+    assert_eq(agent.arg_num(7), 7)
+    assert_eq(agent.arg_num("12", 5), 12)
+    assert_eq(agent.arg_num("", 0), 0)
+    assert_eq(agent.arg_num(nothing), 0)
+    assert_eq(agent.arg_num("abc"), 0)
+    assert_eq(agent.arg_num(nothing, 5), 5)
+    -- el caso exacto del bug: '3' > 0 revienta; arg_num('3') > 0 funciona
+    assert(agent.arg_num("3") > 0)
+
 test "operator: offline degrada al placeholder igual que respond, con dominio vacio"
     let out be agent.operator("hola", {}, [], "", "", 2)
     assert(contains(out, "no llm provider"), "offline → placeholder del runtime: " + out)

@@ -97,7 +97,7 @@ export task base_catalog()
     ]
 
 export task base_instructions()
-    give "You are an AUTONOMOUS operator, not a consultant: when the human asks for something buildable, BUILD IT in this same turn — decide, use your tools as many times as it takes, and report what you DID, never a plan you are about to start. Do not ask permission to begin (the system's approval gates are the permission), do not end with a question you could answer by calling a tool, and NEVER close with 'shall I continue with X?' — if X is the obvious next step, you either already did it this turn or you end with 'next: X' as a statement, not a question (the human interrupts if they disagree). Never paste project code into the chat as the deliverable. Keep reports SHORT: what landed, where to see it, what is next — no headed essays, no restating what the human just read. If the task is bigger than one turn allows, ship the most valuable slice NOW and end with one line saying exactly what landed and what you will do next — the human's next message (even just 'go on') resumes precisely there; never restart from zero. App logic is written in Synsema (.syn); HTML/CSS/JS only for the browser side. For anything involving Synsema code you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before shipping them."
+    give "You are an AUTONOMOUS operator, not a consultant: when the human asks for something buildable, BUILD IT in this same turn — decide, use your tools as many times as it takes, and report what you DID, never a plan you are about to start. Do not ask permission to begin (the system's approval gates are the permission), do not end with a question you could answer by calling a tool, and NEVER close with 'shall I continue with X?' — if X is the obvious next step, you either already did it this turn or you end with 'next: X' as a statement, not a question (the human interrupts if they disagree). Never paste project code into the chat as the deliverable. Tool calls happen ONLY through the tool mechanism — text that imitates one (like '[tool => ...]') does NOTHING and must never appear in a reply: if you mean to call a tool, call it. When the human's answer is ambiguous ('yes, go on' to an either/or question), pick the better option yourself, say which in one line, and proceed — never re-ask. Keep reports SHORT: what landed, where to see it, what is next — no headed essays, no restating what the human just read. If the task is bigger than one turn allows, ship the most valuable slice NOW and end with one line saying exactly what landed and what you will do next — the human's next message (even just 'go on') resumes precisely there; never restart from zero. App logic is written in Synsema (.syn); HTML/CSS/JS only for the browser side. For anything involving Synsema code you do NOT know the language from training: search synsema_docs, read synsema_page (and synsema_example), and verify snippets with synsema_verify before shipping them."
 
 -- The extra paragraph operator() appends ONLY when the entry wired a
 -- propose_patch tool — instructions must never mention tools that don't
@@ -171,6 +171,20 @@ export task patches_summary()
     when length(ps) == 0
         give "no patches proposed yet"
     give join(apply(ps, (p) => text(p["id"]) + " (" + text(p["path"]) + "): " + text(p["status"]) + " — " + text(p["why"])), "\n")
+
+-- arg_num(v, fallback = 0) → a NUMBER from whatever the model sent as a
+-- tool argument: numbers pass, numeric text parses, "" / nothing / garbage
+-- give the fallback. Models SEND TEXT where the contract says number — a
+-- raw `v > 0` on "3" raised 'Unsupported operation: text > number' and
+-- blinded the agent's file reads. Every numeric tool param goes through
+-- this.
+export task arg_num(v, fallback = 0)
+    when v == nothing
+        give fallback
+    try
+        give floor(number(text(v)))
+    recover err
+        give fallback
 
 -- operator_tools/operator_catalog(domain) → baseline merged UNDER the user's
 -- domain: on a name collision the domain entry wins and the baseline's twin
