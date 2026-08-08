@@ -1,4 +1,8 @@
--- Your agent-owned BACKEND — real .syn code, served at /api/*.
+-- Your agent-owned BACKEND — real .syn code, served at /api/*. It lives in
+-- workspace/ — the agent's WHOLE territory: workspace/site/ is the public
+-- web subtree (served at /site), workspace/backend.syn is this code, and
+-- anything else the agent keeps there (data, notes, drafts) is private by
+-- default (never served).
 --
 -- The operator agent GROWS this file via propose_patch (audited + approved
 -- by you, like everything else). app_server.syn — a SEPARATE process — runs
@@ -17,8 +21,10 @@
 -- Shape of ctx: {"method": "GET"|"POST", "path": "ping", "query": {...},
 -- "body": <json map or nothing>}. Give back a map (served as JSON) or a
 -- respond(...) node for full control.
-
-use "./synfide/store.syn" as store
+--
+-- Workspace code is PURE Synsema — language + builtins, no synfide/ imports
+-- (module paths cannot climb directories). Persistent state: remember /
+-- recall / forget_memory, gated by the memory capability declared below.
 
 export task handle(ctx)
     require memory("my-synfide-app-backend")

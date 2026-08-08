@@ -591,11 +591,35 @@ export task endpoints_page(api_docs)
 -- Histories from before sessions existed (synfide-chat:<n>) are adopted
 -- once into the first session — an upgrade never loses a conversation.
 
+-- session_norm(s) → the record with every field the UI relies on filled in.
+-- A malformed row (interrupted write, hand-edited store, version skew) must
+-- NEVER 500 the chat — it degrades to visible defaults instead.
+task session_norm(s)
+    let r be {"id": "?", "title": "", "status": "open", "created_at": 0}
+    each k in ["id", "title", "status", "created_at", "closed_at"]
+        when contains(s, k)
+            set r[k] to s[k]
+    when trim(text(r["title"])) == ""
+        set r["title"] to text(r["id"])
+    give r
+
 task sessions_all()
-    give sort_by(apply(store.list("synfide-sess:"), (kv) => kv["value"]), (s) => s["created_at"])
+    let ok be []
+    each kv in store.list("synfide-sess:")
+        try
+            set ok to ok + [session_norm(kv["value"])]
+        recover err
+            log "sessions: skipping malformed record at " + text(kv["key"]) + " — " + text(err)
+    give sort_by(ok, (s) => s["created_at"])
 
 task session_get(sid)
-    give store.get("synfide-sess:" + text(sid), nothing)
+    let s be store.get("synfide-sess:" + text(sid), nothing)
+    when s == nothing
+        give nothing
+    try
+        give session_norm(s)
+    recover err
+        give nothing
 
 task session_new(title)
     let n be store.get("synfide-sess-n", 0) + 1

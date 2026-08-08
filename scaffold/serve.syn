@@ -25,8 +25,8 @@ require file("./.env")
 require file.read("./.env.example")
 require file.read("./synfide/ui/static/*")
 require file.read(".")                       -- root dir NODE only (names, no contents): the upgrade banner lists *.new files
-require file("./site/*")                     -- the agent's workspace: patches apply here (after audit + YOUR approval) and /site serves it live
-require file("./backend.syn")                -- the agent's BACKEND file: patchable under the same audit + approval (it RUNS in app_server.syn, not here)
+require file("./workspace/*")                -- the agent's WHOLE territory: patches apply here (after audit + YOUR approval). workspace/site/ serves at /site; workspace/backend.syn RUNS in app_server.syn
+require file.read("./workspace")             -- the dir NODE: grep/list_dir over the territory (search_workspace, list_workspace)
 require net("127.0.0.1")                     -- the edge: /api/* proxies to the app server (and try_backend probes it)
 require exec("synsema")                      -- the agent restarts/reads logs of the app server: synsema daemon restart/logs app_server.syn
 
@@ -80,7 +80,7 @@ task tool_list_actions()
         give "no actions proposed yet"
     give join(apply(ws, (w) => describe_action(w)), "\n")
 
--- ══ the agent's HANDS: real file patches under ./site (audited + human-approved) ══
+-- ══ the agent's HANDS: real file patches under ./workspace (audited + human-approved) ══
 -- Thin wrappers ON PURPOSE: the flow (propose → LLM audit → your inbox →
 -- auto-apply) lives in synfide/agent.syn and updates with the framework;
 -- what lives HERE is the POWER — the capability declarations that call_tool
@@ -90,23 +90,60 @@ task tool_propose_patch(path, old, new, why)
     require memory("my-synfide-app")
     require time
     require llm
-    give agent.patch_flow(path, old, new, why, "only files under site/ or backend.syn — reject anything touching serve.syn, app_server.syn (capability grants are typed by humans), .env, credentials or synfide/. In backend.syn scrutinize every `require` line: reject file scopes reaching .env or credentials, reject net hosts unrelated to the change's stated purpose, reject exec entirely.")
+    give agent.patch_flow(path, old, new, why, "only files under workspace/ — reject anything touching serve.syn, app_server.syn (capability grants are typed by humans), .env, credentials or synfide/. In workspace/backend.syn scrutinize every `require` line: reject file scopes reaching .env or credentials, reject net hosts unrelated to the change's stated purpose, reject exec entirely.")
 
 task tool_list_patches()
     require memory("my-synfide-app")
     give agent.patches_summary()
 
-task tool_read_project_file(path)
-    require file.read("./site/*")
-    require file.read("./backend.syn")
+-- Read whole files or SECTIONS (from = 1-based line, lines = how many) —
+-- a big file never needs to flood the agent's context to be edited.
+task tool_read_project_file(path, from = 0, lines = 0)
+    require file.read("./workspace/*")
     when not file_exists(path)
         give "no such file: " + path
+    when from > 0
+        when lines > 0
+            give read_file(path, from, lines)
+        give read_file(path, from)
     give read_file(path)
+
+-- Search the WHOLE territory (recursive, literal): file:line: text.
+task tool_search_workspace(pattern)
+    require file.read("./workspace")
+    require file.read("./workspace/*")
+    let g be grep("./workspace", text(pattern), {"max_results": 40})
+    when length(g["matches"]) == 0
+        give "no matches for: " + text(pattern)
+    let s be join(apply(g["matches"], (m) => text(m["file"]) + ":" + text(m["line"]) + ": " + text(m["text"])), "\n")
+    when g["truncated"]
+        set s to s + "\n… (truncated at 40 matches — narrow the pattern)"
+    give s
+
+task workspace_tree(dir, prefix)
+    let out be []
+    each e in list_dir(dir)
+        when e["is_dir"]
+            set out to out + workspace_tree(dir + "/" + e["name"], prefix + e["name"] + "/")
+        otherwise
+            set out to out + [prefix + e["name"]]
+    give out
+
+task tool_list_workspace()
+    require file.read("./workspace")
+    require file.read("./workspace/*")
+    try
+        let files be workspace_tree("./workspace", "workspace/")
+        when length(files) == 0
+            give "workspace/ is empty — nothing built yet"
+        give join(files, "\n")
+    recover err
+        give "workspace/ is empty or missing — nothing built yet (" + text(err) + ")"
 
 -- ══ the agent's EYES: what got served, what actually happened ══
 task tool_preview_page(path)
-    require file.read("./site/*")
-    give ui.preview_file("./site", path)
+    require file.read("./workspace/site/*")
+    give ui.preview_file("./workspace/site", path)
 
 -- ══ the agent's HANDS ON THE APP SERVER: probe, restart, read the logs ══
 -- The backend runs in its OWN process (app_server.syn, port 9000, under
@@ -166,6 +203,8 @@ let TOOLS be {
     "propose_patch": tool_propose_patch,
     "list_patches": tool_list_patches,
     "read_project_file": tool_read_project_file,
+    "search_workspace": tool_search_workspace,
+    "list_workspace": tool_list_workspace,
     "preview_page": tool_preview_page,
     "journal_tail": tool_journal_tail,
     "try_backend": tool_try_backend,
@@ -173,20 +212,22 @@ let TOOLS be {
     "backend_logs": tool_backend_logs
 }
 let CATALOG be [
-    {"name": "propose_patch", "describe": "Create or edit ONE real file of this app: pages under site/ (live at /site) or the backend code in backend.syn (its handle() serves /api/*). `path` like \"site/index.html\" or \"backend.syn\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES (.syn code additionally needs a server restart to load). This is how you build: never paste project code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
-    {"name": "read_project_file", "describe": "Read one of this app's files: anything under site/ or \"backend.syn\". ALWAYS do it before EDITING a file so `old` matches its current text exactly.", "params": ["path"]},
+    {"name": "propose_patch", "describe": "Create or edit ONE real file of this app inside workspace/ — YOUR territory: web pages under workspace/site/ (served live at /site), backend code in workspace/backend.syn (its handle() serves /api/*), and any other folder you need (data, drafts — private, never served). `path` like \"workspace/site/index.html\" or \"workspace/backend.syn\"; `old` = exact unique text to replace (empty for CREATE a new file); `new` = the content; `why` = one line. The patch is auto-audited and then waits for the human in their Approvals inbox — approved patches apply to disk BY THEMSELVES (.syn code additionally needs a server restart to load). This is how you build: never paste project code into the chat instead of patching it. Verify Synsema code with synsema_verify FIRST.", "params": ["path", "old", "new", "why"]},
+    {"name": "read_project_file", "describe": "Read a workspace file. Whole file by default; for BIG files pass `from` (1-based first line) and `lines` (how many) to read just a section. ALWAYS read before EDITING so `old` matches the current text exactly.", "params": ["path", "from", "lines"]},
+    {"name": "search_workspace", "describe": "Find text across EVERY workspace file (recursive, literal match): returns file:line: text. Use it to locate where something lives before reading or patching — never guess a location.", "params": ["pattern"]},
+    {"name": "list_workspace", "describe": "Every file in workspace/, one path per line — your map of the territory. Check it when you don't know what already exists.", "params": []},
     {"name": "try_backend", "describe": "Call your OWN backend (the app server): `method` GET or POST, `path` like \"ping\", `body` = JSON map or empty. ALWAYS prove an endpoint works with this after restart_backend. UNREACHABLE means the app server is down — restart_backend, then backend_logs if it will not come up.", "params": ["method", "path", "body"]},
-    {"name": "restart_backend", "describe": "Restart (or first-start) the app server that runs backend.syn. Call it YOURSELF right after a backend.syn patch applies — .syn code loads at boot, and the restart touches ONLY the app server, never this control plane. Then prove the change with try_backend.", "params": []},
-    {"name": "backend_logs", "describe": "The app server's own logs. When restart_backend reports it did not start, the boot error is HERE — read it, patch the fix in backend.syn, restart again. You repair your own crashes; nobody external is needed.", "params": []},
+    {"name": "restart_backend", "describe": "Restart (or first-start) the app server that runs workspace/backend.syn. Call it YOURSELF right after a backend patch applies — .syn code loads at boot, and the restart touches ONLY the app server, never this control plane. Then prove the change with try_backend.", "params": []},
+    {"name": "backend_logs", "describe": "The app server's own logs. When restart_backend reports it did not start, the boot error is HERE — read it, patch the fix in workspace/backend.syn, restart again. You repair your own crashes; nobody external is needed.", "params": []},
     {"name": "list_patches", "describe": "Every file patch and its status (audited-ok/waiting/applied/rejected + why). Check it to know what the human approved instead of asking them.", "params": []},
-    {"name": "preview_page", "describe": "See EXACTLY what /site serves for a path (\"\" = the homepage, \"style.css\", \"productos.html\"...). ALWAYS check your work with this after patches apply — a 404 here means the file is missing, truncated output still means the full file serves fine.", "params": ["path"]},
+    {"name": "preview_page", "describe": "See EXACTLY what /site serves for a path under workspace/site/ (\"\" = the homepage, \"style.css\", \"productos.html\"...). ALWAYS check your work with this after patches apply — a 404 here means the file is missing, truncated output still means the full file serves fine.", "params": ["path"]},
     {"name": "journal_tail", "describe": "The last 30 events of this app's journal: patches applied or failed, tool dispatches, approvals, errors. Your first stop when something seems off or when the human says something didn't work.", "params": []},
     {"name": "propose_action", "describe": "Queue an EXTERNAL action (send something, call an API, a payment...) for execution. A human approves it in their inbox and then it executes. `title` = short imperative description. For building/editing this app's files use propose_patch, NOT this.", "params": ["title"]},
     {"name": "list_actions", "describe": "List every queued action, its status and its actual result once executed.", "params": []}
 ]
 
 -- ══ REPLACE ME: your agent's standing instructions (its 'system prompt') ══
-let INSTRUCTIONS be "You are this app's operator agent. Building happens in real files via propose_patch: pages under site/ serve live at /site the moment the human approves; REAL BACKEND ENDPOINTS live in backend.syn, whose handle() serves /api/* from its OWN process (the app server) — grow it with patches. The `require` lines at the top of handle() are capability REQUESTS: the human reviews them in your diff, and they only work once the human also adds the grant in app_server.syn (say so when you request one). Your backend lifecycle is YOURS: after a backend.syn patch applies, call restart_backend yourself (it touches only the app server, never you), then PROVE the endpoint with try_backend; if the app server will not boot, read backend_logs, patch the fix, restart again — you repair your own crashes. After site patches, CHECK with preview_page; journal_tail shows what happened. For EXTERNAL side effects (emails, payments) use propose_action — honest note: its executor starts as a placeholder that only records (list_actions shows each result) until a human wires real code into execute_action."
+let INSTRUCTIONS be "You are this app's operator agent. workspace/ is YOUR territory — build in real files there via propose_patch: pages under workspace/site/ serve live at /site the moment the human approves; REAL BACKEND ENDPOINTS live in workspace/backend.syn, whose handle() serves /api/* from its OWN process (the app server); anything else you keep in workspace/ (data, notes) is private, never served. Grow it all with patches. The `require` lines at the top of handle() are capability REQUESTS: the human reviews them in your diff, and they only work once the human also adds the grant in app_server.syn (say so when you request one). Your backend lifecycle is YOURS: after a backend patch applies, call restart_backend yourself (it touches only the app server, never you), then PROVE the endpoint with try_backend; if the app server will not boot, read backend_logs, patch the fix, restart again — you repair your own crashes. Know your territory: list_workspace maps it, search_workspace finds where things live, read_project_file reads whole files or sections — never guess what exists. After site patches, CHECK with preview_page; journal_tail shows what happened. For EXTERNAL side effects (emails, payments) use propose_action — honest note: its executor starts as a placeholder that only records (list_actions shows each result) until a human wires real code into execute_action."
 
 -- agent.operator = YOUR domain (above) + the framework's baseline: the
 -- Synsema docs/sandbox tools, the autonomy rules ("build it NOW, report what
@@ -220,8 +261,8 @@ let CONFIG be {
     "env_editable": true,
     "about": "Synfide app — agent chat, human approval inbox, durable actions",
     "api_docs": [
-        "GET /site — the agent-built site (real files under ./site, written by audited + approved patches).",
-        "GET|POST /api/* — the agent-built BACKEND (backend.syn in its own app server process; this edge proxies it).\n  curl localhost:8080/api/ping",
+        "GET /site — the agent-built site (real files under ./workspace/site, written by audited + approved patches).",
+        "GET|POST /api/* — the agent-built BACKEND (workspace/backend.syn in its own app server process; this edge proxies it).\n  curl localhost:8080/api/ping",
         "GET /chat/send?message=... — ask the agent (it can patch files and queue actions); then GET /chat shows the reply.\n  curl -L 'localhost:8080/chat/send?message=hello'",
         "GET /inbox — approvals waiting for a human, as JSON (session or Bearer SYNFIDE_ADMIN_TOKEN).\n  curl localhost:8080/inbox -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>'",
         "POST /inbox/:id — decide one.\n  curl -X POST localhost:8080/inbox/<id> -H 'Authorization: Bearer <SYNFIDE_ADMIN_TOKEN>' -H 'Content-Type: application/json' -d '{\"approved\":true,\"who\":\"me\"}'",
@@ -243,13 +284,15 @@ serve on 8080
     route "GET /actions" requires auth
         give durable.workflows("action-")
 
-    -- the agent-built site: files under ./site, created by approved patches,
-    -- live here the moment they land (specificity beats the catch-alls)
+    -- the agent-built site: files under ./workspace/site, created by
+    -- approved patches, live here the moment they land (specificity beats
+    -- the catch-alls). Only that SUBTREE is public — the rest of workspace/
+    -- (backend code, data) is never served.
     route "GET /site"
-        give ui.static_file("./site", "")
+        give ui.static_file("./workspace/site", "")
 
     route "GET /site/*path"
-        give ui.static_file("./site", params.path)
+        give ui.static_file("./workspace/site", params.path)
 
     -- the agent-built BACKEND runs in its OWN process (app_server.syn, port
     -- 9000, under `synsema daemon`): it can crash and restart without ever

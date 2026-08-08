@@ -546,6 +546,18 @@ test "lupa: busca en TODAS las sesiones (cerradas incluidas) y linkea a la duena
     let vacio be ui.chat_page("", "frase-que-no-existe-en-ningun-lado")
     assert(contains(vacio, "Nothing matches"), "sin hits lo dice")
 
+test "sesiones: un registro malformado en el store JAMAS tira 500 el chat (regresion del bug real)"
+    -- el caso reportado: un map sin created_at bajo synfide-sess:
+    store.put("synfide-sess:zz-malformado", {"id": "zz-malformado", "title": "resto de otra epoca"})
+    -- y peor: un valor que ni siquiera es un map
+    store.put("synfide-sess:zz-texto", "esto no es una sesion")
+    let page be ui.chat_page()
+    assert(contains(page, "resto de otra epoca"), "el malformado se normaliza y se VE")
+    let page2 be ui.chat_page("zz-malformado")
+    assert(contains(page2, "resto de otra epoca"), "hasta se puede abrir")
+    store.del("synfide-sess:zz-malformado")
+    store.del("synfide-sess:zz-texto")
+
 test "sesiones: la historia PRE-sesiones se adopta en la primera (un upgrade no pierde nada)"
     each sk in store.list("synfide-sess:")
         store.del(sk["key"])

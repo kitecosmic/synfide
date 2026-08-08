@@ -49,7 +49,7 @@ let FILES be [
     -- a file is the framework's or the user's, never both):
     {"src": "scaffold/AGENTS.md", "dest": "AGENTS.md"},
     {"src": "scaffold/mcp.json", "dest": ".mcp.json"},
-    {"src": "scaffold/backend.syn", "dest": "backend.syn"},
+    {"src": "scaffold/backend.syn", "dest": "workspace/backend.syn"},
     {"src": "scaffold/app_server.syn", "dest": "app_server.syn"},
     {"src": "scaffold/app.syn", "dest": "app.syn"},
     {"src": "scaffold/serve.syn", "dest": "serve.syn"}
