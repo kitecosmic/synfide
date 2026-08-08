@@ -52,17 +52,29 @@
 
   // Approval decisions post JSON (a cross-site form can't forge that: the
   // preflight dies without CORS and the Lax cookie stays home).
+  // In-flight discipline everywhere: while a decision travels, its buttons
+  // are dead — a still-clickable button reads as a hang and invites double
+  // submissions.
+  var lockForm = function (form) {
+    form.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  };
+  var unlockForm = function (form) {
+    form.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+  };
   document.querySelectorAll('form.decide').forEach(function (form) {
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
+      if (form.dataset.busy) return;
+      form.dataset.busy = '1';
       var approved = ev.submitter && ev.submitter.value === 'yes';
+      setTimeout(function () { lockForm(form); }, 0);
       fetch('/inbox/ui/decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: form.dataset.id, approved: approved, who: form.elements.who.value })
       })
-        .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); }); })
-        .catch(function (e) { alert('failed: ' + e); });
+        .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); delete form.dataset.busy; unlockForm(form); }); })
+        .catch(function (e) { alert('failed: ' + e); delete form.dataset.busy; unlockForm(form); });
     });
   });
 
@@ -73,14 +85,17 @@
   if (allForm) {
     allForm.addEventListener('submit', function (ev) {
       ev.preventDefault();
+      if (allForm.dataset.busy) return;
       if (!window.confirm('Approve ALL pending items? (code-protected ones are skipped)')) return;
+      allForm.dataset.busy = '1';
+      lockForm(allForm);
       fetch('/inbox/ui/decide_all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ who: allForm.elements.who.value })
       })
-        .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); }); })
-        .catch(function (e) { alert('failed: ' + e); });
+        .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); delete allForm.dataset.busy; unlockForm(allForm); }); })
+        .catch(function (e) { alert('failed: ' + e); delete allForm.dataset.busy; unlockForm(allForm); });
     });
   }
 
@@ -95,41 +110,54 @@
   var sessNew = document.getElementById('sessnew');
   if (sessNew) {
     sessNew.addEventListener('click', function () {
+      if (sessNew.disabled) return;
+      sessNew.disabled = true;
       fetch('/chat/session/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); }); })
-        .catch(function (e) { alert('failed: ' + e); });
+        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); sessNew.disabled = false; }); })
+        .catch(function (e) { alert('failed: ' + e); sessNew.disabled = false; });
     });
   }
   var sessClose = document.getElementById('sessclose');
   if (sessClose) {
     sessClose.addEventListener('click', function () {
+      if (sessClose.disabled) return;
       if (!window.confirm('Close this session? It becomes read-only (still searchable).')) return;
+      sessClose.disabled = true;
       fetch('/chat/session/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sessClose.dataset.id }) })
-        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); }); })
-        .catch(function (e) { alert('failed: ' + e); });
+        .then(function (r) { if (r.ok) location.href = '/chat'; else return r.text().then(function (t) { alert(t); sessClose.disabled = false; }); })
+        .catch(function (e) { alert('failed: ' + e); sessClose.disabled = false; });
     });
   }
 
   // Autopilot: a time-boxed standing approval for patches, granted (and
-  // revoked) from the chat. The server journals every change.
-  var apSet = function (minutes) {
+  // revoked) from the chat. Every control goes BUSY while its request is in
+  // flight — a clickable-again button read as "is this thing on?".
+  var apBusy = false;
+  var apSet = function (minutes, btn) {
+    if (apBusy) return;
+    apBusy = true;
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    var sel = document.querySelector('#apform select');
+    if (sel) sel.disabled = true;
     fetch('/admin/autopilot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ minutes: minutes })
     })
-      .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); }); })
-      .catch(function (e) { alert('failed: ' + e); });
+      .then(function (r) { if (r.ok) location.reload(); else return r.text().then(function (t) { alert(t); apBusy = false; if (btn) { btn.disabled = false; btn.textContent = label; } if (sel) sel.disabled = false; }); })
+      .catch(function (e) { alert('failed: ' + e); apBusy = false; if (btn) { btn.disabled = false; btn.textContent = label; } if (sel) sel.disabled = false; });
   };
   var apForm = document.getElementById('apform');
   if (apForm) {
     apForm.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      apSet(parseInt(apForm.elements.minutes.value, 10));
+      apSet(parseInt(apForm.elements.minutes.value, 10), apForm.querySelector('button'));
     });
   }
   var apOff = document.getElementById('apoff');
-  if (apOff) apOff.addEventListener('click', function () { apSet(0); });
+  if (apOff) apOff.addEventListener('click', function () { apSet(0, apOff); });
+
 
   // The write-only env editor: value goes out as JSON exactly once, is never
   // echoed back, and every save needs the one-time code the server prints to
@@ -190,9 +218,16 @@
       // the real history. Without JS the form still navigates natively.
       var sending = false;
       var go = function () {
-        if (sending || !t.value.trim()) return;
+        var message = t.value.trim();
+        if (sending || !message) return;
         sending = true;
-        t.readOnly = true;
+        // the fetch carries the message — the composer empties and goes
+        // fully quiet while the agent thinks (a written-but-sent message
+        // lingering in the box read as "did it even send?")
+        t.value = '';
+        t.style.height = 'auto';
+        t.disabled = true;
+        t.placeholder = 'the agent is working on it…';
         var btn = t.form.querySelector('button');
         if (btn) btn.disabled = true;
         var chat = document.querySelector('.chat');
@@ -200,7 +235,7 @@
           var mine = document.createElement('div');
           mine.className = 'msg user';
           var ms = document.createElement('span');
-          ms.textContent = t.value;
+          ms.textContent = message;
           mine.appendChild(ms);
           chat.appendChild(mine);
           var think = document.createElement('div');
@@ -209,7 +244,7 @@
           chat.appendChild(think);
           window.scrollTo(0, document.body.scrollHeight);
         }
-        fetch(t.form.action + '?message=' + encodeURIComponent(t.value))
+        fetch(t.form.action + '?message=' + encodeURIComponent(message))
           .then(function () { location.reload(); })
           .catch(function () { location.reload(); });
       };

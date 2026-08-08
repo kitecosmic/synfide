@@ -90,6 +90,11 @@ task tool_propose_patch(path, old, new, why)
     require memory("my-synfide-app")
     require time
     require llm
+    -- the file cap TOO: under autopilot the gate auto-approves and the APPLY
+    -- runs right here, inside this tool's call_tool scope — without this
+    -- declare, every autopilot patch died with 'Capability not granted' at
+    -- the very last step (audited ok, approved ok, write denied)
+    require file("./workspace/*")
     give agent.patch_flow(path, old, new, why, "only files under workspace/ — reject anything touching serve.syn, app_server.syn (capability grants are typed by humans), .env, credentials or synfide/. In workspace/backend.syn scrutinize every `require` line: reject file scopes reaching .env or credentials, reject net hosts unrelated to the change's stated purpose, reject exec entirely.")
 
 task tool_list_patches()

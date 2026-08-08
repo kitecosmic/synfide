@@ -176,8 +176,11 @@ export task apply(id)
         raise("patches: unknown patch \"" + id + "\" — propose() it first")
     when p["status"] == "applied"
         give p
+    -- apply-failed is RETRYABLE: the audit verdict stands, only the write
+    -- failed (a capability, a changed file) — fix the cause and apply again
     when p["status"] != "audited-ok"
-        raise("patches: \"" + id + "\" is not audited-ok (status: " + p["status"] + ") — audit() must approve before apply()")
+        when p["status"] != "apply-failed"
+            raise("patches: \"" + id + "\" is not audited-ok (status: " + p["status"] + ") — audit() must approve before apply()")
     let g be approvals.status("patch-" + id)
     when g != nothing
         when g["status"] != "approved"
@@ -197,6 +200,9 @@ export task apply(id)
         raise("patches: apply failed for \"" + id + "\": " + text(err))
     set p["status"] to "applied"
     set p["applied_at"] to text(now())
+    -- a retried apply must not drag the OLD failure around
+    when contains(p, "apply_error")
+        set p["apply_error"] to ""
     -- .syn code loads at BOOT: leave a marker so the admin shell can show
     -- "restart to activate" until the process actually reboots (the shell
     -- clears it when it finds the marker older than its own boot).

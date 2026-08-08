@@ -492,6 +492,35 @@ test "autopilot: el gate de un patch se auto-aprueba y aplica EN LA MISMA corrid
     assert(contains(read_file(apath), "autopiloto"), "el archivo existe")
     assert_eq(approvals.status("patch-" + aid)["decided_by"], "autopilot (window by tester)", "queda registrado QUIEN aprobo: el autopilot")
 
+task drive_patch_sin_file(wf, id)
+    require memory("synfide-tests")
+    require time
+    give durable.run(wf, agent.patch_steps(), {"id": id})
+
+task drive_patch_con_file(wf, id)
+    require memory("synfide-tests")
+    require time
+    require file("./.tmp-tests/*")
+    give durable.run(wf, agent.patch_steps(), {"id": id})
+
+test "autopilot + call_tool: el apply corre DENTRO del scope del tool — sin la file cap declarada muere, y es reintentable (bug real p3/p5)"
+    let cid be "ct-" + text(now())
+    let cpath be "./.tmp-tests/anidado/mas/ct-" + cid + ".css"
+    patches.propose(cid, cpath, nothing, "body { color: blue }", "autopilot under call_tool probe")
+    patches.audit(cid, approving_auditor, "")
+    approvals.autopilot_set(30, "tester")
+    -- el tool SIN file cap: gate auto-aprueba y el apply muere por capability
+    let r1 be call_tool(drive_patch_sin_file, {"wf": "patch-" + cid, "id": cid})
+    assert_eq(r1["status"], "failed", "sin file cap el apply muere: " + json_encode(r1))
+    assert(contains(text(r1["error"]), "apability"), "el motivo es capability, visible: " + text(r1["error"]))
+    -- la causa queda VISIBLE para el agente en list_patches
+    assert(contains(agent.patches_summary(), "APPLY ERROR"), "patches_summary muestra el error")
+    -- apply-failed es reintentable: mismo patch, tool CON la cap -> aplica
+    let r2 be call_tool(drive_patch_con_file, {"wf": "patch-" + cid, "id": cid})
+    approvals.autopilot_set(0, "tester")
+    assert_eq(r2["status"], "done", "con la cap declarada aplica: " + json_encode(r2))
+    assert(contains(read_file(cpath), "blue"), "el archivo anidado EXISTE")
+
 test "autopilot: un gate PROTEGIDO por codigo jamas se autopilotea"
     let pid be "app-" + text(now())
     patches.propose(pid, "./.tmp-tests/site-" + pid + ".html", nothing, "<h1>x</h1>", "protected probe")

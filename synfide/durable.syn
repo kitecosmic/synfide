@@ -118,5 +118,11 @@ export task tick(defs)
         let parked be where(workflows(d["prefix"]), (w) => w["status"] == "waiting")
         each w in parked
             let r be run(w["name"], d["steps"], {})
-            set woken to woken + [{"name": w["name"], "status": r["status"]}]
+            let entry be {"name": w["name"], "status": r["status"]}
+            -- a failure's CAUSE must reach whoever logs the tick — a bare
+            -- "failed" in the terminal left everyone blind to a capability
+            -- denial at apply time
+            when contains(r, "error")
+                set entry["error"] to text(r["error"])
+            set woken to woken + [entry]
     give woken

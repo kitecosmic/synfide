@@ -130,7 +130,12 @@ task patch_cls(status)
     give "st-waiting"
 
 task patch_view(p)
-    give {"id": p["id"], "path": p["path"], "status": p["status"], "why": text(p["why"]), "cls": patch_cls(p["status"])}
+    let v be {"id": p["id"], "path": p["path"], "status": p["status"], "why": text(p["why"]), "cls": patch_cls(p["status"]), "has_err": false, "error": ""}
+    when contains(p, "apply_error")
+        when text(p["apply_error"]) != ""
+            set v["has_err"] to true
+            set v["error"] to text(p["apply_error"])
+    give v
 
 -- ---------- pages ----------
 
@@ -204,10 +209,12 @@ export task patch_page(id)
     set d["gate"] to ""
     when g != nothing
         set d["gate"] to text(g["status"])
-    set d["has_error"] to contains(p, "apply_error")
+    set d["has_error"] to false
     set d["apply_error"] to ""
     when contains(p, "apply_error")
-        set d["apply_error"] to text(p["apply_error"])
+        when text(p["apply_error"]) != ""
+            set d["has_error"] to true
+            set d["apply_error"] to text(p["apply_error"])
     set d["diff"] to patches.diff_text(p)
     give body of render("synfide/ui/pages/patch.html", d)
 

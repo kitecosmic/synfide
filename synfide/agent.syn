@@ -162,15 +162,26 @@ export task patch_flow(path, old, new, why, guidelines = "")
         set note to " NOTE: .syn code loads at boot — once applied, restart the process that runs it (restart_backend if you have it) before the new code answers."
     when r["status"] == "done"
         give "patch " + id + " (" + text(p["path"]) + ") audited-ok and APPLIED automatically (autopilot window active — the human granted standing approval)." + note
+    when r["status"] == "failed"
+        -- the agent must learn the REAL cause NOW, not discover a stuck
+        -- patch three turns later
+        give "patch " + id + " (" + text(p["path"]) + ") audited-ok but the APPLY FAILED: " + text(r["error"]) + " — the audit verdict stands; fix the cause and the patch can be re-driven (or re-propose)."
     give "patch " + id + " (" + text(p["path"]) + ") audited-ok — WAITING for the human's approval (they see it right in the chat and in Approvals); once approved it applies to disk by itself. Status: " + r["status"] + note
 
 -- patches_summary() → one line per proposal, newest last — the agent's eyes
 -- on what got approved, applied or rejected.
+task patch_line(p)
+    let s be text(p["id"]) + " (" + text(p["path"]) + "): " + text(p["status"]) + " — " + text(p["why"])
+    when contains(p, "apply_error")
+        when text(p["apply_error"]) != ""
+            set s to s + " | APPLY ERROR: " + text(p["apply_error"])
+    give s
+
 export task patches_summary()
     let ps be patches.proposals()
     when length(ps) == 0
         give "no patches proposed yet"
-    give join(apply(ps, (p) => text(p["id"]) + " (" + text(p["path"]) + "): " + text(p["status"]) + " — " + text(p["why"])), "\n")
+    give join(apply(ps, (p) => patch_line(p)), "\n")
 
 -- arg_num(v, fallback = 0) → a NUMBER from whatever the model sent as a
 -- tool argument: numbers pass, numeric text parses, "" / nothing / garbage
